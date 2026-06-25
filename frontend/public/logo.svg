@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 550" width="100%" height="100%">
+  <defs>
+    <!-- Gradient for the book outline (Blue to Cyan to Purple) -->
+    <linearGradient id="book-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="50%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    
+    <!-- Gradients for the book spines -->
+    <linearGradient id="spine-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#172554" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <linearGradient id="spine-mid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="100%" stop-color="#0ea5e9" />
+    </linearGradient>
+    <linearGradient id="spine-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    
+    <!-- Glow filter for the central star (Purple glow) -->
+    <filter id="star-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .brand-text { fill: #ffffff; font-family: 'Cinzel', 'Trajan Pro', 'Georgia', serif; font-weight: 800; }
+    .sub-text { fill: #c084fc; font-family: 'Inter', 'Helvetica', sans-serif; font-weight: 600; letter-spacing: 0.15em; }
+    .line-decor { stroke: #0ea5e9; stroke-width: 2; opacity: 0.6; }
+    
+    @media (prefers-color-scheme: light) {
+      .brand-text { fill: #1e1b4b; }
+      .sub-text { fill: #a855f7; }
+      .line-decor { stroke: #0ea5e9; }
+    }
+  </style>
+
+  <!-- Icon Section -->
+  <g transform="translate(0, 0)">
+    <!-- Book Outline (Outer Pages Left and Right) -->
+    <!-- Left pages curve -->
+    <path d="M 400 320 
+             C 320 330, 260 260, 260 170 
+             C 260 170, 310 160, 380 200 
+             Z" fill="url(#book-grad)" opacity="0.9" />
+             
+    <!-- Right pages curve -->
+    <path d="M 400 320 
+             C 480 330, 540 260, 540 170 
+             C 540 170, 490 160, 420 200 
+             Z" fill="url(#book-grad)" opacity="0.9" />
+             
+    <!-- Left pages inner shadow/outline -->
+    <path d="M 400 310 
+             C 335 320, 280 255, 280 180 
+             C 280 180, 320 175, 380 210 
+             Z" fill="#0f172a" opacity="0.3" />
+
+    <!-- Right pages inner shadow/outline -->
+    <path d="M 400 310 
+             C 465 320, 520 255, 520 180 
+             C 520 180, 480 175, 420 210 
+             Z" fill="#0f172a" opacity="0.3" />
+
+    <!-- Spines in the center -->
+    <!-- Left Spine -->
+    <rect x="365" y="210" width="20" height="90" rx="3" fill="url(#spine-left)" />
+    <!-- Middle Spine -->
+    <rect x="390" y="190" width="20" height="110" rx="3" fill="url(#spine-mid)" />
+    <!-- Right Spine -->
+    <rect x="415" y="220" width="20" height="80" rx="3" fill="url(#spine-right)" />
+    
+    <!-- White book spine lines/details -->
+    <line x1="367" y1="230" x2="383" y2="230" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="367" y1="240" x2="383" y2="240" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    
+    <line x1="392" y1="210" x2="408" y2="210" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="392" y1="220" x2="408" y2="220" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    
+    <line x1="417" y1="240" x2="433" y2="240" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="417" y1="250" x2="433" y2="250" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+
+    <!-- Bottom circular base element -->
+    <circle cx="400" cy="315" r="10" fill="#1e3a8a" />
+  </g>
+
+  <!-- Sparkles & Stars -->
+  <g>
+    <!-- Main 8-pointed Purple/Cyan Star -->
+    <!-- Glow -->
+    <circle cx="400" cy="110" r="12" fill="#a855f7" opacity="0.3" filter="url(#star-glow)" />
+    <!-- Path of star -->
+    <path d="M 400 70 L 404 106 L 440 110 L 404 114 L 400 150 L 396 114 L 360 110 L 396 106 Z" fill="#a855f7" />
+    <!-- Diagonal points of star -->
+    <path d="M 400 110 L 402.8 107.2 L 420 110 L 402.8 112.8 L 400 110 L 397.2 112.8 L 380 110 L 397.2 107.2 Z" fill="#e9d5ff" />
+    
+    <!-- Surrounding smaller cyan/purple stars -->
+    <!-- Top-left small star -->
+    <polygon points="345,90 347,94 351,94 348,96 349,100 345,98 341,100 342,96 339,94 343,94" fill="#0ea5e9" />
+    <!-- Top-right small star -->
+    <polygon points="455,95 457,99 461,99 458,101 459,105 455,103 451,105 452,101 449,99 453,99" fill="#0ea5e9" />
+    
+    <!-- Surrounding blue/purple stars -->
+    <polygon points="380,85 381.5,88 385,88 382.5,89.5 383,93 380,91 377,93 377.5,89.5 375,88 378.5,88" fill="#3b82f6" />
+    <polygon points="420,80 421.5,83 425,83 422.5,84.5 423,88 420,86 417,88 417.5,84.5 415,83 418.5,83" fill="#a855f7" />
+    <polygon points="350,125 351.5,128 355,128 352.5,129.5 353,133 350,131 347,133 347.5,129.5 345,128 348.5,128" fill="#1e3a8a" />
+    <polygon points="450,125 451.5,128 455,128 452.5,129.5 453,133 450,131 447,133 447.5,129.5 445,128 448.5,128" fill="#1e3a8a" />
+  </g>
+
+  <!-- Text Section -->
+  <g>
+    <!-- NOVA LIBRARY -->
+    <text x="400" y="410" text-anchor="middle" font-size="46" class="brand-text">NOVA LIBRARY</text>
+    
+    <!-- Divider lines with sub-text -->
+    <line x1="200" y1="455" x2="330" y2="455" class="line-decor" />
+    <text x="400" y="460" text-anchor="middle" font-size="14" class="sub-text">SMART LIBRARY MANAGEMENT SYSTEM</text>
+    <line x1="470" y1="455" x2="600" y2="455" class="line-decor" />
+  </g>
+</svg>

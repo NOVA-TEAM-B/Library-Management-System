@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 220" width="100%" height="100%">
+  <defs>
+    <!-- Gradient for the book outline -->
+    <linearGradient id="book-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="50%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#0ea5e9" />
+    </linearGradient>
+    
+    <!-- Gradients for the book spines -->
+    <linearGradient id="spine-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#172554" />
+      <stop offset="100%" stop-color="#1e3a8a" />
+    </linearGradient>
+    <linearGradient id="spine-mid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="spine-right" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#0ea5e9" />
+    </linearGradient>
+    
+    <!-- Glow filter for the yellow star -->
+    <filter id="star-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Icon Section -->
+  <g transform="translate(-250, -40)">
+    <!-- Book Outline (Outer Pages Left and Right) -->
+    <!-- Left pages curve -->
+    <path d="M 400 220 
+             C 320 230, 260 160, 260 70 
+             C 260 70, 310 60, 380 100 
+             Z" fill="url(#book-grad)" opacity="0.9" />
+             
+    <!-- Right pages curve -->
+    <path d="M 400 220 
+             C 480 230, 540 160, 540 70 
+             C 540 70, 490 60, 420 100 
+             Z" fill="url(#book-grad)" opacity="0.9" />
+             
+    <!-- Left pages inner shadow/outline -->
+    <path d="M 400 210 
+             C 335 220, 280 155, 280 80 
+             C 280 80, 320 75, 380 110 
+             Z" fill="#0f172a" opacity="0.3" />
+
+    <!-- Right pages inner shadow/outline -->
+    <path d="M 400 210 
+             C 465 220, 520 155, 520 80 
+             C 520 80, 480 75, 420 110 
+             Z" fill="#0f172a" opacity="0.3" />
+
+    <!-- Spines in the center -->
+    <!-- Left Spine -->
+    <rect x="365" y="110" width="20" height="90" rx="3" fill="url(#spine-left)" />
+    <!-- Middle Spine -->
+    <rect x="390" y="90" width="20" height="110" rx="3" fill="url(#spine-mid)" />
+    <!-- Right Spine -->
+    <rect x="415" y="120" width="20" height="80" rx="3" fill="url(#spine-right)" />
+    
+    <!-- White book spine lines/details -->
+    <line x1="367" y1="130" x2="383" y2="130" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="367" y1="140" x2="383" y2="140" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    
+    <line x1="392" y1="110" x2="408" y2="110" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="392" y1="120" x2="408" y2="120" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    
+    <line x1="417" y1="140" x2="433" y2="140" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+    <line x1="417" y1="150" x2="433" y2="150" stroke="#ffffff" stroke-width="2" opacity="0.8" />
+
+    <!-- Bottom circular base element -->
+    <circle cx="400" cy="215" r="10" fill="#1e3a8a" />
+
+    <!-- Sparkles & Stars -->
+    <!-- Main 8-pointed Gold Star -->
+    <!-- Glow -->
+    <circle cx="400" cy="10" r="12" fill="#fbbf24" opacity="0.3" filter="url(#star-glow)" />
+    <!-- Path of star -->
+    <path d="M 400 -30 L 404 6 L 440 10 L 404 14 L 400 50 L 396 14 L 360 10 L 396 6 Z" fill="#fbbf24" />
+    <!-- Diagonal points of star -->
+    <path d="M 400 10 L 402.8 7.2 L 420 10 L 402.8 12.8 L 400 10 L 397.2 12.8 L 380 10 L 397.2 7.2 Z" fill="#fef08a" />
+    
+    <!-- Surrounding smaller gold stars -->
+    <polygon points="345,-10 347,-6 351,-6 348,-4 349,0 345,-2 341,0 342,-4 339,-6 343,-6" fill="#fbbf24" />
+    <polygon points="455,-5 457,-1 461,-1 458,1 459,5 455,3 451,5 452,1 449,-1 453,-1" fill="#fbbf24" />
+    
+    <!-- Surrounding blue stars -->
+    <polygon points="380,-15 381.5,-12 385,-12 382.5,-10.5 383,-7 380,-9 377,-7 377.5,-10.5 375,-12 378.5,-12" fill="#3b82f6" />
+    <polygon points="420,-20 421.5,-17 425,-17 422.5,-15.5 423,-12 420,-14 417,-12 417.5,-15.5 415,-17 418.5,-17" fill="#3b82f6" />
+    <polygon points="350,25 351.5,28 355,28 352.5,29.5 353,33 350,31 347,33 347.5,29.5 345,28 348.5,28" fill="#1e3a8a" />
+    <polygon points="450,25 451.5,28 455,28 452.5,29.5 453,33 450,31 447,33 447.5,29.5 445,28 448.5,28" fill="#1e3a8a" />
+  </g>
+</svg>
