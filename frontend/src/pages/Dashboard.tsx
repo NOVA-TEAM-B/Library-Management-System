@@ -1,12 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import Chart from 'react-apexcharts';
 import { motion } from 'framer-motion';
+import BrandLogo from '../components/BrandLogo';
 import { 
   BookOpen, Users, Bookmark, Calendar, DollarSign, Bell, ShieldCheck, 
   TrendingUp, Sparkles, Award, Building, Cpu, Activity, Flame, CheckCircle,
   Clock, AlertTriangle, Play, HelpCircle, HardDrive, ShieldAlert, PlusCircle,
   Keyboard
 } from 'lucide-react';
+
+function AnimatedCounter({ value, duration = 800 }: { value: number | string; duration?: number }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const isString = typeof value === 'string';
+    const cleanStr = isString ? (value as string).replace(/[^0-9.]/g, '') : '';
+    const num = isString ? parseFloat(cleanStr) : (value as number);
+
+    if (isNaN(num) || num <= 0) {
+      setCount(0);
+      return;
+    }
+
+    let startTimestamp: number | null = null;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      setCount(Math.floor(progress * num));
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      } else {
+        setCount(num);
+      }
+    };
+    window.requestAnimationFrame(step);
+  }, [value, duration]);
+
+  if (typeof value === 'string' && value.startsWith('₹')) {
+    return <span>₹{count.toLocaleString()}</span>;
+  }
+  return <span>{count.toLocaleString()}</span>;
+}
 
 interface DashboardProps {
   user: any;
@@ -52,6 +86,18 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
   const [activitySearch, setActivitySearch] = useState('');
   const [orgSearch, setOrgSearch] = useState('');
 
+  // Enterprise specific UI states
+  const [activePdfUrl, setActivePdfUrl] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanAction, setScanAction] = useState<'borrow' | 'return'>('borrow');
+  const [scanInput, setScanInput] = useState('');
+  const [scanMemberId, setScanMemberId] = useState('');
+  
+  const [acquisitionList, setAcquisitionList] = useState<any[]>([]);
+  const [bookTitleInput, setBookTitleInput] = useState('');
+  const [bookAuthorInput, setBookAuthorInput] = useState('');
+  const [bookIsbnInput, setBookIsbnInput] = useState('');
+
   // Scoped Member statistics
   const [memberStats, setMemberStats] = useState<any>({
     kpis: {
@@ -66,8 +112,39 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
     reading_history: [],
     reservations: [],
     notifications: [],
+    recommended_books: [],
+    calendar_events: [],
     issue_trends: { labels: [], data: [] },
     popular_categories: {}
+  });
+
+  // Scoped Librarian/Admin dashboard data package
+  const [dashboardData, setDashboardData] = useState<any>({
+    kpis: {
+      total_books: 0,
+      available_books: 0,
+      books_issued: 0,
+      reservations: 0,
+      revenue: 0,
+      total_members: 0,
+      active_students: 0
+    },
+    today_issues_count: 0,
+    today_issues: [],
+    today_returns_count: 0,
+    today_returns: [],
+    pending_reservations: [],
+    pending_renewals_count: 0,
+    pending_renewals: [],
+    overdue_books: [],
+    popular_books: [],
+    staff_activity: [],
+    notifications: [],
+    recent_activity: [],
+    popular_categories: {},
+    issue_trends: { labels: [], data: [] },
+    fine_trends: { labels: [], data: [] },
+    low_stock_books: []
   });
 
   // Fetch Dashboard Stats
@@ -91,6 +168,7 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
       } else if (data.role === 'member') {
         setMemberStats(data);
       } else {
+        setDashboardData(data);
         setKpi(data.kpis);
         setActivities(data.recent_activity || []);
         setIssueTrend(data.issue_trends || { labels: [], data: [] });
@@ -109,8 +187,24 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
     }
   };
 
+  const fetchAcquisitions = async () => {
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch('http://127.0.0.1:5000/api/books/requests-list', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const d = await res.json();
+      if (res.ok) setAcquisitionList(d);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     fetchDashboardStats();
+    if (user.role === 'admin' || user.role === 'librarian') {
+      fetchAcquisitions();
+    }
   }, []);
 
   // 1. Line Chart - Books Issued Trend
@@ -295,7 +389,9 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
             >
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{card.label}</span>
-                <h3 className="text-xl font-extrabold text-white mt-1.5">{card.value}</h3>
+                <h3 className="text-xl font-extrabold text-white mt-1.5">
+                  <AnimatedCounter value={card.value} />
+                </h3>
               </div>
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${card.color} ${card.bg}`}>
                 <card.icon className="w-5 h-5" />
@@ -418,11 +514,15 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
         {/* Welcome Banner */}
         <motion.div variants={itemVariants} className="glass-panel p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-br from-[#1e1b4b]/60 to-[#020617]/80 border-white/5 relative overflow-hidden">
           <div className="absolute right-0 top-0 w-80 h-80 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div>
-            <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              Welcome Organization Admin, {user.username} <Sparkles className="w-5 h-5 text-indigo-400" />
-            </h2>
-            <p className="text-slate-400 text-xs mt-1">Review catalog metrics, adjust departmental reading metrics, and audit system operations.</p>
+          <div className="flex items-center gap-3">
+            <BrandLogo imgClassName="w-12 h-12 rounded-xl object-contain bg-white/5 border border-white/10 p-1" />
+            <div>
+              <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                Welcome Organization Admin, {user.username} <Sparkles className="w-5 h-5 text-indigo-400" />
+              </h2>
+              <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider mb-1">{user?.org_name || 'NOVA ACADEMIA NODE'}</p>
+              <p className="text-slate-400 text-xs mt-1">Review catalog metrics, adjust departmental reading metrics, and audit system operations.</p>
+            </div>
           </div>
           <div className="flex items-center gap-4 bg-white/5 border border-white/5 px-4 py-2.5 rounded-2xl">
             <div className="text-right">
@@ -449,7 +549,9 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
             >
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{card.label}</span>
-                <h3 className="text-xl font-extrabold text-white mt-1.5">{card.value}</h3>
+                <h3 className="text-xl font-extrabold text-white mt-1.5">
+                  <AnimatedCounter value={card.value} />
+                </h3>
               </div>
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${card.color} ${card.bg}`}>
                 <card.icon className="w-5 h-5" />
@@ -557,11 +659,15 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
         {/* Welcome Banner */}
         <motion.div variants={itemVariants} className="glass-panel p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-br from-[#1e1b4b]/60 to-[#020617]/80 border-white/5 relative overflow-hidden">
           <div className="absolute right-0 top-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div>
-            <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              Welcome Staff Librarian, {user.username} <Sparkles className="w-5 h-5 text-emerald-400" />
-            </h2>
-            <p className="text-slate-400 text-xs mt-1">Review circulation states, approve pending reservations, and issue fines waivers.</p>
+          <div className="flex items-center gap-3">
+            <BrandLogo imgClassName="w-12 h-12 rounded-xl object-contain bg-white/5 border border-white/10 p-1" />
+            <div>
+              <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                Welcome Staff Librarian, {user.username} <Sparkles className="w-5 h-5 text-emerald-400" />
+              </h2>
+              <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mb-1">{user?.org_name || 'NOVA ACADEMIA NODE'}</p>
+              <p className="text-slate-400 text-xs mt-1">Review circulation states, approve pending reservations, and issue fines waivers.</p>
+            </div>
           </div>
           <div className="flex items-center gap-4 bg-white/5 border border-white/5 px-4 py-2.5 rounded-2xl">
             <div className="text-right">
@@ -588,7 +694,9 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
             >
               <div>
                 <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{card.label}</span>
-                <h3 className="text-xl font-extrabold text-white mt-1.5">{card.value}</h3>
+                <h3 className="text-xl font-extrabold text-white mt-1.5">
+                  <AnimatedCounter value={card.value} />
+                </h3>
               </div>
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${card.color} ${card.bg}`}>
                 <card.icon className="w-5 h-5" />
@@ -727,11 +835,15 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
       {/* Welcome Banner */}
       <motion.div variants={itemVariants} className="glass-panel p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-br from-[#1e1b4b]/60 to-[#020617]/80 border-white/5 relative overflow-hidden">
         <div className="absolute right-0 top-0 w-80 h-80 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
-        <div>
-          <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-            Welcome back, {user.username} <Sparkles className="w-5 h-5 text-yellow-400 animate-pulse" />
-          </h2>
-          <p className="text-slate-400 text-xs mt-1">Unlock academic milestones, borrow digital titles, and explore your reading timelines.</p>
+        <div className="flex items-center gap-3">
+          <BrandLogo imgClassName="w-12 h-12 rounded-xl object-contain bg-white/5 border border-white/10 p-1" />
+          <div>
+            <h2 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+              Welcome back, {user.username} <Sparkles className="w-5 h-5 text-yellow-400 animate-pulse" />
+            </h2>
+            <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider mb-1">{user?.org_name || 'NOVA ACADEMIA NODE'}</p>
+            <p className="text-slate-400 text-xs mt-1">Unlock academic milestones, borrow digital titles, and explore your reading timelines.</p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 bg-white/5 border border-white/5 px-3 py-1.5 rounded-2xl">
@@ -772,10 +884,68 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
             className={`glass-panel p-4 flex flex-col justify-between hover:scale-[1.02] active:scale-[0.98] transition-all border-white/5 cursor-pointer ${card.color} ${card.span || ''}`}
           >
             <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">{card.label}</span>
-            <h3 className={`text-xl font-extrabold mt-2.5 ${card.valueColor || 'text-white'}`}>{card.value}</h3>
+            <h3 className={`text-xl font-extrabold mt-2.5 ${card.valueColor || 'text-white'}`}>
+              <AnimatedCounter value={card.value} />
+            </h3>
           </motion.div>
         ))}
       </motion.div>
+
+      {/* AI Matches & PDF Ebook Reader list */}
+      {memberStats.recommended_books?.length > 0 && (
+        <motion.div variants={itemVariants} className="glass-panel p-5 border-white/5">
+          <h4 className="text-white text-sm font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-yellow-400" /> AI-Powered Academic Matches
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {memberStats.recommended_books.map((book: any) => (
+              <div key={book.id} className="bg-white/[0.01] border border-white/5 p-4 rounded-2xl flex flex-col justify-between h-[165px] hover:border-white/10 transition-all hover:bg-white/[0.02]">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="text-[9px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded-lg font-bold uppercase font-mono">{book.category}</span>
+                    {book.is_digital && (
+                      <span className="text-[9px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2 py-0.5 rounded-lg font-bold uppercase font-mono">eBook</span>
+                    )}
+                  </div>
+                  <strong className="text-white text-sm block mt-2 leading-snug truncate">{book.title}</strong>
+                  <span className="text-slate-500 text-[10px] block mt-0.5 truncate">By: {book.author}</span>
+                </div>
+                <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-white/5 text-[10px]">
+                  <span className="text-amber-400 font-bold">Match: {book.ai_recommendation_score}%</span>
+                  {book.is_digital ? (
+                    <button 
+                      onClick={() => setActivePdfUrl(book.pdf_url || "https://pdfobject.com/pdf/sample.pdf")}
+                      className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border border-purple-500/20 px-3 py-1 rounded-xl font-bold transition-all"
+                    >
+                      Read eBook
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={async () => {
+                        const token = localStorage.getItem('nova_jwt_token');
+                        const res = await fetch(`http://127.0.0.1:5000/api/books/reserve`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                          },
+                          body: JSON.stringify({ book_id: book.id })
+                        });
+                        const resData = await res.json();
+                        alert(resData.msg);
+                        fetchDashboardStats();
+                      }}
+                      className="bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/20 px-3 py-1 rounded-xl font-bold transition-all"
+                    >
+                      Quick Hold
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Charts: Reading Trends & Categories */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -818,7 +988,7 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
               <div className="col-span-full text-center text-slate-500 py-16">No active library checkouts.</div>
             ) : (
               filteredHistory.map((item: any) => (
-                <div key={item.id} className="bg-white/[0.01] border border-white/5 p-4 rounded-2xl flex flex-col justify-between h-[130px] hover:border-white/10 transition-all hover:bg-white/[0.02]">
+                <div key={item.id} className="bg-white/[0.01] border border-white/5 p-4 rounded-2xl flex flex-col justify-between h-[135px] hover:border-white/10 transition-all hover:bg-white/[0.02]">
                   <div>
                     <span className={`text-[9px] font-mono tracking-widest font-bold block uppercase ${item.status === 'overdue' ? 'text-rose-400 animate-pulse' : 'text-cyan-400'}`}>
                       {item.status === 'overdue' ? 'OVERDUE NOTICE' : `DUE: ${item.due_date ? item.due_date.split(' ')[0] : 'N/A'}`}
@@ -828,7 +998,27 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
                   </div>
                   <div className="flex justify-between items-center text-[10px] mt-2 border-t border-white/5 pt-2">
                     <span className="text-slate-500">Issued: {item.issue_date.split(' ')[0]}</span>
-                    <span className="text-yellow-400 font-bold bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">Active Node</span>
+                    {item.renewal_requested ? (
+                      <span className="text-yellow-400 font-bold bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">Renewal Pending</span>
+                    ) : item.renewal_count >= 3 ? (
+                      <span className="text-slate-500 font-bold bg-white/5 px-2 py-0.5 rounded-lg border border-white/10">Max Renewals</span>
+                    ) : (
+                      <button 
+                        onClick={async () => {
+                          const token = localStorage.getItem('nova_jwt_token');
+                          const res = await fetch(`http://127.0.0.1:5000/api/issue/renew-request/${item.id}`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${token}` }
+                          });
+                          const resData = await res.json();
+                          alert(resData.msg);
+                          fetchDashboardStats();
+                        }}
+                        className="text-cyan-400 font-bold bg-cyan-500/10 hover:bg-cyan-500/20 px-2.5 py-0.5 rounded-xl border border-cyan-500/20 transition-all active:scale-95"
+                      >
+                        Renew
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -859,6 +1049,102 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
         </div>
       </motion.div>
 
+      {/* Academic Calendar Events Timeline & Acquisition Form */}
+      <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Calendar Events widget */}
+        <div className="glass-panel p-5 border-white/5 lg:col-span-2 h-[320px] flex flex-col">
+          <h4 className="text-white text-sm font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-cyan-400" /> Academic Calendar Schedule
+          </h4>
+          <div className="overflow-y-auto space-y-3.5 flex-grow pr-1">
+            {memberStats.calendar_events?.length === 0 ? (
+              <div className="text-center text-slate-500 py-16">No upcoming events scheduled.</div>
+            ) : (
+              memberStats.calendar_events?.map((evt: any, idx: number) => (
+                <div key={idx} className="p-3 rounded-2xl bg-white/[0.01] border border-white/5 flex justify-between items-center text-xs">
+                  <div>
+                    <strong className="text-white block">{evt.title}</strong>
+                    <span className="text-slate-500 block mt-0.5">{evt.description}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-cyan-400 font-mono font-bold block">{evt.event_date}</span>
+                    <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold block mt-1">{evt.event_type}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Suggest Book Acquisition suggestion box */}
+        <div className="glass-panel p-5 border-white/5 h-[320px] flex flex-col">
+          <h4 className="text-white text-sm font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+            <PlusCircle className="w-4 h-4 text-purple-400" /> Suggest Book Acquisition
+          </h4>
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!bookTitleInput || !bookAuthorInput) {
+                alert('Title and Author are required.');
+                return;
+              }
+              const token = localStorage.getItem('nova_jwt_token');
+              const res = await fetch(`http://127.0.0.1:5000/api/books/request`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  title: bookTitleInput,
+                  author: bookAuthorInput,
+                  isbn: bookIsbnInput
+                })
+              });
+              const data = await res.json();
+              alert(data.msg);
+              setBookTitleInput('');
+              setBookAuthorInput('');
+              setBookIsbnInput('');
+              fetchDashboardStats();
+            }}
+            className="space-y-3 flex-1 flex flex-col justify-between"
+          >
+            <div className="space-y-2">
+              <input 
+                type="text" 
+                placeholder="Book Title *"
+                value={bookTitleInput}
+                onChange={(e) => setBookTitleInput(e.target.value)}
+                className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+              />
+              <input 
+                type="text" 
+                placeholder="Author *"
+                value={bookAuthorInput}
+                onChange={(e) => setBookAuthorInput(e.target.value)}
+                className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+              />
+              <input 
+                type="text" 
+                placeholder="ISBN-13 (Optional)"
+                value={bookIsbnInput}
+                onChange={(e) => setBookIsbnInput(e.target.value)}
+                className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+              />
+            </div>
+            <button 
+              type="submit"
+              className="w-full bg-purple-500 hover:bg-purple-600 text-white font-bold text-xs py-2 rounded-xl transition-all shadow-[0_0_10px_rgba(168,85,247,0.15)] active:scale-95"
+            >
+              Submit Acquisition Suggestion
+            </button>
+          </form>
+        </div>
+
+      </motion.div>
+
       {/* QUICK SHORTCUTS ACTIONS PANEL (Priority 6 shortcuts helper) */}
       <motion.div variants={itemVariants} className="glass-panel p-4 border-white/5 flex flex-wrap items-center justify-between gap-4 text-xs bg-slate-950/40">
         <div className="flex items-center gap-2">
@@ -872,6 +1158,196 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
           <span className="px-2 py-1 rounded bg-white/5 border border-white/10 text-slate-300">Alt + L : Sign Out</span>
         </div>
       </motion.div>
+
+      {/* Digital PDF iframe e-Reader Modal */}
+      {activePdfUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-5xl h-[85vh] bg-slate-900 border border-white/10 rounded-3xl overflow-hidden flex flex-col shadow-2xl">
+            <div className="bg-slate-950 p-4 border-b border-white/5 flex justify-between items-center">
+              <h3 className="text-white font-bold flex items-center gap-2 text-sm uppercase tracking-wider">
+                <BookOpen className="w-5 h-5 text-cyan-400" /> Digital PDF E-Reader Node
+              </h3>
+              <button 
+                onClick={() => setActivePdfUrl(null)}
+                className="text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-xl text-xs transition-all active:scale-95"
+              >
+                Close E-Reader
+              </button>
+            </div>
+            <div className="flex-1 bg-slate-900">
+              <iframe 
+                src={activePdfUrl} 
+                className="w-full h-full border-none"
+                title="E-Book Reader"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Barcode/QR Scanner Simulator Modal */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+          <div className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl overflow-hidden p-6 shadow-2xl">
+            <h3 className="text-white font-extrabold text-lg flex items-center gap-2 mb-2">
+              <Cpu className="w-5 h-5 text-emerald-400 animate-pulse" /> visual Barcode / QR Scanner
+            </h3>
+            <p className="text-slate-400 text-xs mb-4">Simulate visual camera stream alignment. Align the barcode below or input details manually to execute circulation changes.</p>
+            
+            <div className="relative aspect-[4/3] bg-slate-950 border border-white/5 rounded-2xl overflow-hidden mb-4 flex flex-col items-center justify-center">
+              {/* Animated scanning line */}
+              <div className="absolute left-0 right-0 h-0.5 bg-emerald-500/80 shadow-[0_0_10px_#10b981] animate-scannerLine" style={{
+                animation: 'scan 2.2s ease-in-out infinite'
+              }} />
+              
+              <div className="border-2 border-dashed border-emerald-500/30 w-48 h-20 rounded-xl flex items-center justify-center text-emerald-500/50 text-[10px] font-mono tracking-widest bg-emerald-500/[0.02]">
+                ALIGN BARCODE HERE
+              </div>
+            </div>
+            
+            <style>{`
+              @keyframes scan {
+                0% { top: 10%; }
+                50% { top: 90%; }
+                100% { top: 10%; }
+              }
+            `}</style>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] text-slate-500 block font-bold uppercase tracking-wider mb-1">Select Circulation Workflow</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => setScanAction('borrow')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${scanAction === 'borrow' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}
+                  >
+                    Borrow Book
+                  </button>
+                  <button 
+                    onClick={() => setScanAction('return')}
+                    className={`py-2 rounded-xl text-xs font-bold border transition-all ${scanAction === 'return' ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}
+                  >
+                    Return Book
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 block font-bold uppercase tracking-wider mb-1">Scanned Barcode ISBN or Book ID</label>
+                <input 
+                  type="text" 
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  placeholder="ISBN-13 (e.g. 978-0131103628) or Book ID"
+                  className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {scanAction === 'borrow' && (
+                <div>
+                  <label className="text-[10px] text-slate-500 block font-bold uppercase tracking-wider mb-1">Student / Member ID</label>
+                  <input 
+                    type="text" 
+                    value={scanMemberId}
+                    onChange={(e) => setScanMemberId(e.target.value)}
+                    placeholder="Student User ID (e.g. 2)"
+                    className="w-full bg-white/5 border border-white/5 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button 
+                onClick={() => setShowScanner(false)}
+                className="flex-1 bg-white/5 hover:bg-white/10 text-slate-400 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+              >
+                Cancel Scanner
+              </button>
+              <button 
+                onClick={async () => {
+                  const token = localStorage.getItem('nova_jwt_token');
+                  if (!scanInput) {
+                    alert('Please enter barcode data.');
+                    return;
+                  }
+                  
+                  try {
+                    if (scanAction === 'borrow') {
+                      if (!scanMemberId) {
+                        alert('Student Member ID required for borrow operation.');
+                        return;
+                      }
+                      
+                      let resolvedBookId = scanInput;
+                      if (scanInput.includes('-') || scanInput.length > 5) {
+                        const bookRes = await fetch(`http://127.0.0.1:5000/api/books?search=${scanInput}`, {
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const books = await bookRes.json();
+                        if (books && books.length > 0) {
+                          resolvedBookId = books[0].id;
+                        } else {
+                          alert('Book with scanned ISBN not found.');
+                          return;
+                        }
+                      }
+                      
+                      const borrowRes = await fetch(`http://127.0.0.1:5000/api/issues`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                          book_id: resolvedBookId,
+                          member_id: scanMemberId,
+                          due_days: 14
+                        })
+                      });
+                      const borrowData = await borrowRes.json();
+                      alert(borrowData.msg);
+                    } else {
+                      let issueId = scanInput;
+                      const issueCheckRes = await fetch(`http://127.0.0.1:5000/api/issues?status=issued`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      const activeIssues = await issueCheckRes.json();
+                      const matchingIssue = activeIssues.find((issue: any) => 
+                        issue.id === parseInt(scanInput) || 
+                        issue.book_id === parseInt(scanInput) ||
+                        (issue.book_isbn && issue.book_isbn === scanInput)
+                      );
+                      
+                      if (matchingIssue) {
+                        issueId = matchingIssue.id;
+                      } else {
+                        alert('No active borrow ticket found matching scanned barcode.');
+                        return;
+                      }
+                      
+                      const returnRes = await fetch(`http://127.0.0.1:5000/api/issues/${issueId}/return`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      const returnData = await returnRes.json();
+                      alert(returnData.msg);
+                    }
+                    
+                    setShowScanner(false);
+                    fetchDashboardStats();
+                  } catch (scanErr: any) {
+                    alert('Error executing scanned transaction: ' + scanErr.message);
+                  }
+                }}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95"
+              >
+                Execute Action
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

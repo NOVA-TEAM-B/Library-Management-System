@@ -41,7 +41,7 @@ class FineService:
         return updated_count
 
     @staticmethod
-    def settle_fine(fine_id: int):
+    def settle_fine(fine_id: int, approver_id: int = None, transaction_reference: str = None, payment_date: datetime = None):
         """
         Marks a pending fine invoice as paid and clears the fine amount on the issue.
         """
@@ -53,6 +53,9 @@ class FineService:
             return fine
             
         fine.status = 'paid'
+        fine.approver_id = approver_id
+        fine.transaction_reference = transaction_reference
+        fine.payment_date = payment_date or datetime.utcnow()
         
         # Settle fine on the issue too if attached
         if fine.issue:

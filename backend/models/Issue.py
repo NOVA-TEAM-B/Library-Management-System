@@ -15,6 +15,11 @@ class Issue(db.Model):
     fine_amount = db.Column(db.Float, default=0.0, nullable=False)
     org_id = db.Column(db.Integer, db.ForeignKey('organizations.id', ondelete='SET NULL'), nullable=True)
 
+    # Renewal workflows
+    renewal_requested = db.Column(db.Boolean, default=False, nullable=False)
+    renewal_count = db.Column(db.Integer, default=0, nullable=False)
+    renewal_status = db.Column(db.String(20), nullable=True) # pending, approved, rejected
+
     # Relationships
     member = db.relationship('User', back_populates='issues')
     book = db.relationship('Book', back_populates='issues')
@@ -35,5 +40,8 @@ class Issue(db.Model):
             'return_date': self.return_date.strftime('%Y-%m-%d %H:%M:%S') if self.return_date else None,
             'status': self.status,
             'fine_amount': self.fine_amount,
-            'org_id': self.org_id
+            'org_id': self.org_id,
+            'renewal_requested': self.renewal_requested,
+            'renewal_count': self.renewal_count,
+            'renewal_status': self.renewal_status
         }

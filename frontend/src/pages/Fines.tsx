@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, ClipboardList, CheckCircle, Clock, AlertTriangle, CreditCard, QrCode } from 'lucide-react';
+import { ClipboardList, CheckCircle, Clock, AlertTriangle, CreditCard, QrCode, FileText } from 'lucide-react';
 
 interface Fine {
   id: number;
@@ -10,6 +10,9 @@ interface Fine {
   amount: number;
   status: string;
   created_at: string;
+  payment_date?: string;
+  transaction_reference?: string;
+  approver_name?: string;
 }
 
 export default function Fines() {
@@ -17,10 +20,19 @@ export default function Fines() {
   const [stats, setStats] = useState({ total: 0, collected: 0, pending: 0, overdue_count: 0 });
   const [loading, setLoading] = useState(true);
   
-  // Payment modal state
+  // Modals state
   const [activePayment, setActivePayment] = useState<Fine | null>(null);
+  const [approveTarget, setApproveTarget] = useState<Fine | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<Fine | null>(null);
+  
   const [payMethod, setPayMethod] = useState<'card' | 'upi'>('card');
   const [paying, setPaying] = useState(false);
+  const [txReference, setTxReference] = useState('');
+
+  const userStr = localStorage.getItem('nova_user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isStaff = user?.role === 'admin' || user?.role === 'librarian';
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   const fetchFines = async () => {
     try {
@@ -44,22 +56,42 @@ export default function Fines() {
     fetchFines();
   }, []);
 
-  const handlePayment = async () => {
+  // Student checkout flow: only logs local alert, status remains pending
+  const handleInitiatePayment = () => {
     if (!activePayment) return;
+    
+    if (payMethod === 'upi') {
+      alert("Payment Initiated! Please complete the transaction in PhonePe or your UPI app. The fine status will remain 'pending' until verified and approved by the librarian.");
+    } else {
+      alert("Mock Card Payment Initiated! Card transactions must be verified by the library desk. The status will update once approved.");
+    }
+    
+    setActivePayment(null);
+    fetchFines();
+  };
+
+  // Staff manual verification approval flow: updates status to paid
+  const handleApprovePayment = async () => {
+    if (!approveTarget) return;
     setPaying(true);
     
     try {
       const token = localStorage.getItem('nova_jwt_token');
-      const res = await fetch(`http://127.0.0.1:5000/api/issues/fines/${activePayment.id}/pay`, {
+      const res = await fetch(`http://127.0.0.1:5000/api/issues/fines/${approveTarget.id}/pay`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ transaction_reference: txReference })
       });
       
       const data = await res.json();
       if (!res.ok) throw new Error(data.msg);
       
-      alert(`Payment of ₹${activePayment.amount.toFixed(2)} successful! Account cleared.`);
-      setActivePayment(null);
+      alert(`Fine of ₹${approveTarget.amount.toFixed(2)} approved & cleared successfully!`);
+      setApproveTarget(null);
+      setTxReference('');
       fetchFines();
     } catch (err: any) {
       alert(err.message);
@@ -106,7 +138,7 @@ export default function Fines() {
       </div>
 
       {/* FINES TABLE LEDGER */}
-      <div className="glass-panel p-5 border-white/10">
+      <div className="glass-panel p-5 border-white/10 animate-fade-in">
         <h4 className="text-white text-base font-semibold mb-4"><i className="fas fa-receipt text-warning me-2"></i>Accounts Receivable Ledger</h4>
         
         {loading ? (
@@ -124,7 +156,7 @@ export default function Fines() {
                   <th className="pb-3 font-semibold">Logged Date</th>
                   <th className="pb-3 font-semibold">Fine Amount</th>
                   <th className="pb-3 font-semibold">Status</th>
-                  <th className="pb-3 font-semibold">Quick Actions</th>
+                  <th className="pb-3 font-semibold text-center">Quick Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -134,7 +166,7 @@ export default function Fines() {
                   fines.map(f => (
                     <tr key={f.id} className="hover:bg-white/[0.02]">
                       <td className="py-3.5"><strong className="text-yellow-400">#TX-{1000 + f.id}</strong></td>
-                      <td className="py-3.5 text-white">{f.member_name}</td>
+                      <td className="py-3.5 text-white font-medium">{f.member_name}</td>
                       <td className="py-3.5 text-white/80 max-w-[180px] truncate">{f.book_title || 'N/A'}</td>
                       <td className="py-3.5 text-white/60">{f.created_at ? f.created_at.split(' ')[0] : '-'}</td>
                       <td className="py-3.5 font-bold text-white">₹{f.amount.toFixed(2)}</td>
@@ -143,15 +175,31 @@ export default function Fines() {
                           {f.status}
                         </span>
                       </td>
-                      <td className="py-3.5">
+                      <td className="py-3.5 text-center">
                         {f.status === 'pending' ? (
+                          isStaff ? (
+                            <button
+                              onClick={() => setApproveTarget(f)}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-3 py-1 rounded-lg text-[10px] shadow"
+                            >
+                              Approve Payment
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setActivePayment(f)}
+                              className="bg-yellow-400 hover:bg-yellow-500 text-blue-950 font-bold px-3 py-1 rounded-lg text-[10px] shadow"
+                            >
+                              Pay Fine
+                            </button>
+                          )
+                        ) : (
                           <button
-                            onClick={() => setActivePayment(f)}
-                            className="bg-yellow-400 hover:bg-yellow-500 text-blue-950 font-bold px-3 py-1 rounded-lg text-[10px] shadow"
+                            onClick={() => setSelectedReceipt(f)}
+                            className="bg-blue-600/30 hover:bg-blue-600/50 text-cyan-300 font-bold px-3 py-1 rounded-lg text-[10px] shadow flex items-center gap-1 mx-auto"
                           >
-                            Pay Fine
+                            <FileText className="w-3 h-3" /> Receipt
                           </button>
-                        ) : '-'}
+                        )}
                       </td>
                     </tr>
                   ))
@@ -162,17 +210,10 @@ export default function Fines() {
         )}
       </div>
 
-      {/* UPI/CARD CHECKOUT MOCK MODAL */}
+      {/* STUDENT CHECKOUT MODAL */}
       {activePayment && (
         <div className="fixed inset-0 bg-black/70 backdrop-filter backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-sm border-white/20 p-6 relative bg-gradient-to-br from-blue-900 to-slate-900 rounded-[24px]">
-            {paying && (
-              <div className="absolute inset-0 bg-blue-950/80 backdrop-filter backdrop-blur-sm z-50 flex flex-col justify-center items-center rounded-[24px]">
-                <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-                <span className="mt-4 text-white text-xs font-semibold">Authorizing Transaction...</span>
-              </div>
-            )}
-
             <button
               onClick={() => setActivePayment(null)}
               className="absolute top-4 right-4 text-white/60 hover:text-white text-xl"
@@ -198,7 +239,7 @@ export default function Fines() {
                 onClick={() => setPayMethod('upi')}
                 className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${payMethod === 'upi' ? 'bg-blue-600 text-white shadow-lg' : 'hover:bg-white/5'}`}
               >
-                UPI QR Code
+                UPI / PhonePe
               </button>
             </div>
 
@@ -215,39 +256,193 @@ export default function Fines() {
                   maxLength={16}
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
                 />
-                <div className="row g-2">
-                  <div className="col-6">
-                    <input
-                      type="text"
-                      placeholder="MM/YY"
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      type="password"
-                      placeholder="CVV"
-                      maxLength={3}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
-                    />
-                  </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder="MM/YY"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
+                  />
+                  <input
+                    type="password"
+                    placeholder="CVV"
+                    maxLength={3}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
+                  />
                 </div>
               </div>
             ) : (
-              <div className="text-center py-4 space-y-3">
-                <div className="w-28 h-28 bg-white p-2.5 rounded-xl mx-auto flex items-center justify-center border border-white/20">
-                  <QrCode className="w-full h-full text-blue-950" />
-                </div>
-                <span className="text-[10px] text-white/50 block">Scan UPI QR to process mock checkout</span>
+              <div className="text-center py-2 space-y-4 animate-fade-in">
+                {isMobile ? (
+                  <div className="py-4">
+                    <a
+                      href={`upi://pay?pa=8919733305@ybl&pn=RAJAPUTRA%20SHASHANK%20SINGH&am=${activePayment.amount.toFixed(2)}&cu=INR&tn=Library%20Fine%20Payment`}
+                      className="inline-flex items-center justify-center gap-2 bg-[#5f259f] hover:bg-[#4b1c7f] text-white font-bold py-3 px-6 rounded-2xl shadow-lg text-xs transition-all w-full"
+                    >
+                      <i className="fas fa-mobile-alt text-base"></i> Pay via PhonePe / UPI App
+                    </a>
+                    <span className="text-[9px] text-white/40 block mt-2">Clicking opens PhonePe or any installed UPI application.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-40 h-40 bg-white p-3 rounded-2xl mx-auto flex items-center justify-center border border-white/20 shadow-xl relative overflow-hidden">
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
+                          `upi://pay?pa=8919733305@ybl&pn=RAJAPUTRA%20SHASHANK%20SINGH&am=${activePayment.amount.toFixed(2)}&cu=INR&tn=Library%20Fine%20Payment`
+                        )}`}
+                        alt="UPI QR Code" 
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider block">Scan with PhonePe / any UPI App</span>
+                      <span className="text-[9px] text-white/50 block">Payee: RAJAPUTRA SHASHANK SINGH</span>
+                      <span className="text-[9px] text-white/40 block font-mono">UPI ID: 8919733305@ybl</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
             <button
-              onClick={handlePayment}
+              onClick={handleInitiatePayment}
               className="w-full mt-6 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-teal-500 hover:to-emerald-500 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 text-xs transition-all"
             >
-              Verify Payment Settle
+              {payMethod === 'upi' ? "Initiate UPI Payment" : "Initiate Card Settle"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* STAFF MANUAL APPROVAL MODAL */}
+      {approveTarget && (
+        <div className="fixed inset-0 bg-black/70 backdrop-filter backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-sm border-white/20 p-6 relative bg-gradient-to-br from-[#0c1328] to-[#12213e] rounded-[24px]">
+            {paying && (
+              <div className="absolute inset-0 bg-blue-950/80 backdrop-filter backdrop-blur-sm z-50 flex flex-col justify-center items-center rounded-[24px]">
+                <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+                <span className="mt-4 text-white text-xs font-semibold">Recording Verification...</span>
+              </div>
+            )}
+
+            <button
+              onClick={() => { setApproveTarget(null); setTxReference(''); }}
+              className="absolute top-4 right-4 text-white/60 hover:text-white text-xl"
+            >
+              &times;
+            </button>
+
+            <div className="text-center mb-6">
+              <span className="text-[10px] text-yellow-400 font-bold uppercase tracking-wider block">Staff Verification Desk</span>
+              <h3 className="text-xl font-bold text-white mt-1">Approve Payment</h3>
+              <p className="text-white/60 text-xs mt-2 px-2 leading-relaxed">
+                Confirm receipt of direct UPI payment for <strong>{approveTarget.member_name}</strong>.
+              </p>
+              <div className="mt-3 text-2xl font-extrabold text-emerald-400">₹{approveTarget.amount.toFixed(2)}</div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-white/60 text-[10px] uppercase font-bold block mb-1">Transaction Reference / UTR</label>
+                <input
+                  type="text"
+                  placeholder="Enter UPI Ref No. or Card Tx ID"
+                  value={txReference}
+                  onChange={(e) => setTxReference(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/40 focus:outline-none"
+                />
+              </div>
+
+              <button
+                onClick={handleApprovePayment}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-teal-500 hover:to-emerald-500 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 text-xs transition-all"
+              >
+                Approve & Settle Fine
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRINTABLE RECEIPT MODAL */}
+      {selectedReceipt && (
+        <div className="fixed inset-0 bg-black/80 backdrop-filter backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass-panel w-full max-w-md border-white/20 p-8 relative bg-white text-slate-900 rounded-[24px] shadow-2xl printable-receipt">
+            <button
+              onClick={() => setSelectedReceipt(null)}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-950 text-2xl no-print"
+            >
+              &times;
+            </button>
+
+            {/* Receipt Header */}
+            <div className="text-center border-b-2 border-dashed border-slate-300 pb-4 mb-6">
+              <div className="w-12 h-12 bg-slate-900 text-white p-2 rounded-xl mx-auto flex items-center justify-center font-bold text-lg mb-2">
+                NL
+              </div>
+              <h2 className="text-lg font-black tracking-wide font-sans m-0 uppercase text-slate-900">NOVA LIBRARY</h2>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider block mt-1">Smart Library Management System</span>
+              <span className="text-[11px] font-mono text-slate-400 block mt-2">TRANSACTION RECEIPT</span>
+            </div>
+
+            {/* Receipt Body */}
+            <div className="space-y-4 text-xs font-sans">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Receipt Number:</span>
+                <span className="font-mono font-bold text-slate-800">#REC-{1000 + selectedReceipt.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Issued Date:</span>
+                <span className="text-slate-800">{selectedReceipt.created_at ? selectedReceipt.created_at.split(' ')[0] : '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Settled Date:</span>
+                <span className="text-slate-800 font-medium">{selectedReceipt.payment_date ? selectedReceipt.payment_date.split(' ')[0] : '-'}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-100 pt-3">
+                <span className="text-slate-500 font-semibold">Member Name:</span>
+                <span className="text-slate-800 font-bold">{selectedReceipt.member_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Book Title:</span>
+                <span className="text-slate-800 max-w-[200px] text-right truncate">{selectedReceipt.book_title || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-100 pt-3">
+                <span className="text-slate-500 font-semibold">Transaction Reference:</span>
+                <span className="text-slate-800 font-mono font-medium">{selectedReceipt.transaction_reference || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-semibold">Approved By:</span>
+                <span className="text-slate-800 font-semibold">{selectedReceipt.approver_name || 'Library Desk'}</span>
+              </div>
+
+              {/* Total Block */}
+              <div className="flex justify-between border-t-2 border-dashed border-slate-300 pt-4 mt-6 text-sm font-bold bg-slate-50 p-3 rounded-xl">
+                <span className="text-slate-700">Amount Settled:</span>
+                <span className="text-emerald-600 font-extrabold text-base">₹{selectedReceipt.amount.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {/* Receipt Footer */}
+            <div className="text-center text-[10px] text-slate-400 mt-6 pt-4 border-t border-slate-100 leading-normal">
+              Thank you for clearing your academic account.<br/>
+              Nova Library Smart Services.
+            </div>
+
+            {/* Print Action */}
+            <div className="mt-6 flex gap-2 no-print">
+              <button
+                onClick={() => window.print()}
+                className="flex-1 bg-slate-900 hover:bg-slate-850 text-white font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition-all"
+              >
+                Print Receipt
+              </button>
+              <button
+                onClick={() => setSelectedReceipt(null)}
+                className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2 rounded-xl text-xs transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

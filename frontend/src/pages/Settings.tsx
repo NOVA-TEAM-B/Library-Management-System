@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Database, Mail, Key, Building, Save, CheckCircle, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings as SettingsIcon, Database, Mail, Key, Building, Save, CheckCircle, RefreshCw, Upload } from 'lucide-react';
 
 export default function Settings() {
   const [name, setName] = useState('');
@@ -8,6 +8,9 @@ export default function Settings() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Backup states
   const [backingUp, setBackingUp] = useState(false);
@@ -20,8 +23,8 @@ export default function Settings() {
       const parsed = JSON.parse(storedUser);
       setName(parsed.org_name || 'MIT Tech Institute');
       setFineRate(parsed.fine_rate || '5.0');
+      setLogoUrl(parsed.org_logo || '/logo.svg');
     }
-    setLogoUrl('/logo.svg');
   }, []);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -56,6 +59,7 @@ export default function Settings() {
         const parsed = JSON.parse(storedUser);
         parsed.org_name = name;
         parsed.fine_rate = parseFloat(fineRate);
+        parsed.org_logo = logoUrl;
         localStorage.setItem('nova_user', JSON.stringify(parsed));
       }
 
@@ -63,6 +67,47 @@ export default function Settings() {
       setErrorMsg(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Logo size exceeds 5 MB limit.");
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      alert("Invalid file type. Only JPG, JPEG, PNG, and WEBP are allowed.");
+      return;
+    }
+
+    setUploadingLogo(true);
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch('http://127.0.0.1:5000/api/admin/upload-logo', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || "Logo upload failed");
+
+      setLogoUrl(data.logo_url);
+      alert("Logo uploaded successfully!");
+    } catch (err: any) {
+      alert("Logo upload failed: " + err.message);
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -123,12 +168,29 @@ export default function Settings() {
 
             <div>
               <label className="text-white/60 block mb-1 font-semibold">Custom Logo Image URL</label>
-              <input
-                type="text"
-                value={logoUrl}
-                onChange={e => setLogoUrl(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={logoUrl}
+                  onChange={e => setLogoUrl(e.target.value)}
+                  className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => logoFileInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" /> {uploadingLogo ? 'Uploading...' : 'Upload Logo'}
+                </button>
+                <input
+                  type="file"
+                  ref={logoFileInputRef}
+                  onChange={handleLogoUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
             </div>
 
             <div className="pt-2 flex justify-end">

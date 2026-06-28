@@ -4,7 +4,7 @@ import {
   Sparkles, Moon, Sun, Bell, LayoutDashboard, Search as SearchIcon, Users, 
   BookOpen, Bookmark, Calendar, FileText, Clock, Trophy, User, LogOut, 
   Menu, Building, Activity, Settings as SettingsIcon, ShieldAlert,
-  ChevronLeft, ChevronRight, Search, Keyboard, Signal
+  ChevronLeft, ChevronRight, Search, Keyboard, Signal, CreditCard
 } from 'lucide-react';
 
 import Login from './pages/Login';
@@ -22,11 +22,90 @@ import Home from './pages/Home';
 import Organizations from './pages/Organizations';
 import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
+import LibraryRequests from './pages/LibraryRequests';
+import Billing from './pages/Billing';
+
+function SakuraBackground() {
+  const [petals, setPetals] = useState<any[]>([]);
+
+  useEffect(() => {
+    const newPetals = Array.from({ length: 30 }).map((_, i) => ({
+      id: i,
+      left: Math.random() * 100 + 'vw',
+      delay: Math.random() * 15 + 's',
+      duration: (Math.random() * 10 + 8) + 's',
+      transform: `rotate(${Math.random() * 360}deg)`
+    }));
+    setPetals(newPetals);
+  }, []);
+
+  return (
+    <div className="sakura-bg">
+      {petals.map(p => (
+        <div
+          key={p.id}
+          className="sakura-petal"
+          style={{
+            left: p.left,
+            animationDelay: p.delay,
+            animationDuration: p.duration,
+            transform: p.transform,
+            top: '-20px',
+            width: Math.random() * 8 + 6 + 'px',
+            height: Math.random() * 10 + 8 + 'px'
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AccessDenied({ role, tab, onBackToDashboard }: { role: string; tab: string; onBackToDashboard: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-[70vh] text-center space-y-6 max-w-md mx-auto animate-fade-in">
+      <div className="relative mb-2">
+        <div className="w-20 h-20 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse">
+          <ShieldAlert className="w-10 h-10" />
+        </div>
+        <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full border border-slate-950 flex items-center justify-center font-bold text-white text-[9px] animate-ping" />
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-white text-base font-extrabold tracking-wider uppercase">System Access Revoked</h3>
+        <p className="text-slate-400 text-xs">Your credentials do not possess high-level access keys for the requested node.</p>
+      </div>
+
+      <div className="w-full p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-2.5 text-left text-xs">
+        <div className="flex justify-between border-b border-white/5 pb-2">
+          <span className="text-slate-500">Security Sector:</span>
+          <span className="text-red-400 font-mono uppercase font-bold tracking-widest">{tab.replace('_', ' ')} Node</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Authorized Clearence:</span>
+          <span className="text-slate-300 font-semibold">Elevated Credentials Only</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-500">Identity Detected:</span>
+          <span className="text-slate-300 font-semibold font-mono uppercase">{role}</span>
+        </div>
+      </div>
+
+      <div className="flex gap-3 w-full">
+        <button
+          onClick={onBackToDashboard}
+          className="flex-1 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-bold rounded-xl shadow-lg border border-white/10 text-xs hover:scale-[1.02] transition-all cursor-pointer"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [darkMode, setDarkMode] = useState(true);
+  // darkMode state replaced by theme_preference toggle
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -76,8 +155,33 @@ export default function App() {
     if (storedUser && token) {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
-      // Auto redirect to role-specific dashboard by default
-      setActiveTab('dashboard');
+      // Auto redirect to billing tab if checkout is pending, else dashboard
+      const pendingAction = localStorage.getItem('pending_action');
+      const pendingPlan = localStorage.getItem('pending_plan');
+      if (pendingAction === 'subscription' && pendingPlan) {
+        setActiveTab('billing');
+      } else {
+        setActiveTab('dashboard');
+      }
+
+      const syncProfile = async () => {
+        try {
+          const res = await fetch('http://127.0.0.1:5000/api/auth/me', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (res.ok) {
+            const freshUser = await res.json();
+            const updatedUser = { ...parsedUser, ...freshUser };
+            setUser(updatedUser);
+            localStorage.setItem('nova_user', JSON.stringify(updatedUser));
+          }
+        } catch (err) {
+          console.error("Failed to sync profile on mount:", err);
+        }
+      };
+      syncProfile();
     }
   }, []);
 
@@ -85,7 +189,9 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    const socket = io('http://127.0.0.1:5000');
+    const socket = io('http://127.0.0.1:5000', {
+      transports: ['websocket']
+    });
 
     socket.on('connect', () => {
       console.log('Real-time WebSockets Connected');
@@ -105,15 +211,92 @@ export default function App() {
     };
   }, [user]);
 
+  // Fetch active alerts on mount / authentication changes
+  useEffect(() => {
+    if (!user) return;
+    const fetchNotifications = async () => {
+      try {
+        const token = localStorage.getItem('nova_jwt_token');
+        const res = await fetch('http://127.0.0.1:5000/api/notifications', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setNotifications(data);
+        }
+      } catch (err) {
+        console.error("Failed to fetch notifications:", err);
+      }
+    };
+    fetchNotifications();
+  }, [user]);
+
+  const clearAllNotifications = async () => {
+    setNotifications([]);
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      await fetch('http://127.0.0.1:5000/api/notifications/read-all', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.error("Failed to mark notifications read:", err);
+    }
+  };
+
   const handleLoginSuccess = (loggedInUser: any) => {
     setUser(loggedInUser);
-    // Role-specific redirect
-    setActiveTab('dashboard');
+    // Redirect to billing if checkout is pending, else dashboard
+    const pendingAction = localStorage.getItem('pending_action');
+    const pendingPlan = localStorage.getItem('pending_plan');
+    if (pendingAction === 'subscription' && pendingPlan) {
+      setActiveTab('billing');
+    } else {
+      setActiveTab('dashboard');
+    }
   };
 
   const handleLogout = () => {
     localStorage.clear();
     setUser(null);
+  };
+
+  const isLightTheme = () => {
+    const pref = user?.theme_preference || 'tokyo-night';
+    return pref === 'soft-sakura' || pref === 'blue-sky';
+  };
+
+  const toggleThemeMode = async () => {
+    const currentTheme = user?.theme_preference || 'tokyo-night';
+    let newTheme = 'tokyo-night';
+    if (currentTheme === 'tokyo-night') newTheme = 'soft-sakura';
+    else if (currentTheme === 'soft-sakura') newTheme = 'tokyo-night';
+    else if (currentTheme === 'reading-room') newTheme = 'blue-sky';
+    else if (currentTheme === 'blue-sky') newTheme = 'reading-room';
+    else newTheme = 'tokyo-night';
+
+    const updatedUser = { ...user, theme_preference: newTheme };
+    setUser(updatedUser);
+    localStorage.setItem('nova_user', JSON.stringify(updatedUser));
+
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch('http://127.0.0.1:5000/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ theme_preference: newTheme })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('nova_user', JSON.stringify(data.user));
+        setUser(data.user);
+      }
+    } catch (err) {
+      console.error('Failed to sync theme preference with server:', err);
+    }
   };
 
   // Helper to trigger global search filters in BookExplorer
@@ -155,8 +338,37 @@ export default function App() {
     return 'from-blue-500/20 to-cyan-500/20 text-cyan-300 border-cyan-500/30';
   };
 
+  const hasAccess = (tab: string) => {
+    if (!user) return false;
+    if (tab === 'dashboard' || tab === 'profile' || tab === 'billing') return true;
+    
+    if (user.role === 'superadmin') {
+      return ['dashboard', 'organizations', 'audit_logs', 'settings', 'profile'].includes(tab);
+    }
+    if (user.role === 'admin') {
+      return ['dashboard', 'members', 'books', 'reports', 'settings', 'profile', 'requests', 'billing'].includes(tab);
+    }
+    if (user.role === 'librarian') {
+      return ['dashboard', 'books', 'issue', 'fines', 'reports', 'profile', 'requests'].includes(tab);
+    }
+    if (user.role === 'member') {
+      return ['dashboard', 'books', 'history', 'leaderboard', 'profile'].includes(tab);
+    }
+    return false;
+  };
+
+  const getThemeClass = () => {
+    const pref = user?.theme_preference || 'tokyo-night';
+    if (pref === 'dark') return 'theme-tokyo-night';
+    if (pref === 'light') return 'theme-soft-sakura';
+    return `theme-${pref}`;
+  };
+
   return (
-    <div className={`app-wrapper flex min-h-screen ${darkMode ? 'bg-[#030712] text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+    <div className={`app-wrapper flex min-h-screen relative overflow-hidden ${getThemeClass()}`}>
+      <SakuraBackground />
+      <div className="aurora-glow-1 top-10 left-10" />
+      <div className="aurora-glow-2 bottom-20 right-20" />
       
       {/* SIDEBAR NAVIGATION - Premium Glassmorphic design */}
       <aside className={`fixed lg:relative z-40 h-screen border-r border-white/5 bg-[#0b0f19]/90 backdrop-blur-2xl flex flex-col justify-between p-4 transition-all duration-300 ${collapsed ? 'w-[80px]' : 'w-[260px]'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
@@ -164,7 +376,11 @@ export default function App() {
           {/* Logo brand & Collapsed trigger */}
           <div className="flex items-center justify-between gap-3 border-b border-white/5 pb-4">
             <div className="flex items-center gap-3 overflow-hidden">
-              <img src="/logo.svg" className="w-10 h-10 object-cover" alt="Nova Logo" />
+              {user?.org_logo ? (
+                <img src={user.org_logo} className="w-10 h-10 object-contain rounded-full bg-white/5 border border-white/10 p-0.5" alt="Org Logo" />
+              ) : (
+                <img src="/logo-icon.svg?v=2" className="w-10 h-10 object-cover" alt="Nova Logo" />
+              )}
               {!collapsed && (
                 <div className="animate-fade-in">
                   <h1 className="text-xs font-extrabold m-0 tracking-widest text-white uppercase truncate max-w-[140px]">{user?.org_name || "NOVA LIBRARY"}</h1>
@@ -243,6 +459,13 @@ export default function App() {
                   {!collapsed && <span className="animate-fade-in">Master Catalog</span>}
                 </button>
                 <button
+                  onClick={() => { setActiveTab('requests'); setSidebarOpen(false); }}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === 'requests' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <Calendar className="w-4.5 h-4.5" />
+                  {!collapsed && <span className="animate-fade-in">Library Requests</span>}
+                </button>
+                <button
                   onClick={() => { setActiveTab('reports'); setSidebarOpen(false); }}
                   className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === 'reports' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
                 >
@@ -255,6 +478,13 @@ export default function App() {
                 >
                   <SettingsIcon className="w-4.5 h-4.5" />
                   {!collapsed && <span className="animate-fade-in">Node Settings</span>}
+                </button>
+                <button
+                  onClick={() => { setActiveTab('billing'); setSidebarOpen(false); }}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === 'billing' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <CreditCard className="w-4.5 h-4.5" />
+                  {!collapsed && <span className="animate-fade-in">Billing & Plans</span>}
                 </button>
               </>
             )}
@@ -275,6 +505,13 @@ export default function App() {
                 >
                   <BookOpen className="w-4.5 h-4.5" />
                   {!collapsed && <span className="animate-fade-in">Book Catalog</span>}
+                </button>
+                <button
+                  onClick={() => { setActiveTab('requests'); setSidebarOpen(false); }}
+                  className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === 'requests' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                >
+                  <Calendar className="w-4.5 h-4.5" />
+                  {!collapsed && <span className="animate-fade-in">Library Requests</span>}
                 </button>
                 <button
                   onClick={() => { setActiveTab('issue'); setSidebarOpen(false); }}
@@ -430,15 +667,15 @@ export default function App() {
                 <div className="absolute right-0 mt-2 w-82 glass-panel border-white/10 p-4 space-y-3 shadow-2xl z-50 text-xs bg-[#0b0f19] max-h-72 overflow-y-auto rounded-2xl">
                   <div className="flex justify-between border-b border-white/5 pb-2">
                     <strong className="text-white font-bold text-[10px] uppercase tracking-wider">System Feed Logging</strong>
-                    <span onClick={() => setNotifications([])} className="text-[10px] text-cyan-400 hover:text-cyan-300 cursor-pointer font-semibold">Clear All</span>
+                    <span onClick={clearAllNotifications} className="text-[10px] text-cyan-400 hover:text-cyan-300 cursor-pointer font-semibold">Clear All</span>
                   </div>
                   {notifications.length === 0 ? (
                     <div className="text-center py-6 text-slate-500 text-[10px]">No active system telemetry.</div>
                   ) : (
                     notifications.map((n, idx) => (
                       <div key={idx} className="p-2.5 rounded-xl bg-white/5 border border-white/5 space-y-1">
-                        <p className="m-0 text-slate-200 leading-snug font-sans">{n.message}</p>
-                        <small className="text-[8px] text-slate-500 block text-right">{n.timestamp}</small>
+                        <p className="m-0 text-slate-200 leading-snug font-sans">{n.message || (n.title ? `${n.title}: ${n.message}` : '')}</p>
+                        <small className="text-[8px] text-slate-500 block text-right">{n.created_at || n.date || n.timestamp || 'Just now'}</small>
                       </div>
                     ))
                   )}
@@ -446,30 +683,39 @@ export default function App() {
               )}
             </div>
 
-            {/* Dark/Light mode filter toggle */}
+            {/* Dark/Light mode theme mode toggle */}
             <button
-              onClick={() => setDarkMode(!darkMode)}
+              onClick={toggleThemeMode}
               className="bg-white/5 border border-white/10 p-2.5 rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Toggle Theme Mode"
             >
-              {darkMode ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5" />}
+              {isLightTheme() ? <Moon className="w-4.5 h-4.5" /> : <Sun className="w-4.5 h-4.5 text-amber-400" />}
             </button>
           </div>
         </header>
 
         {/* CONTAINER VIEWPORTS */}
         <div className="flex-grow p-6">
-          {activeTab === 'dashboard' && <Dashboard user={user} onTabChange={setActiveTab} />}
-          {activeTab === 'books' && <BookExplorer />}
-          {activeTab === 'members' && <MemberManagement />}
-          {activeTab === 'issue' && <IssueReturn />}
-          {activeTab === 'fines' && <Fines />}
-          {activeTab === 'reports' && <Reports />}
-          {activeTab === 'history' && <ReadingHistory />}
-          {activeTab === 'leaderboard' && <Leaderboard />}
-          {activeTab === 'profile' && <Profile user={user} onProfileUpdate={setUser} />}
-          {activeTab === 'organizations' && <Organizations />}
-          {activeTab === 'audit_logs' && <AuditLogs />}
-          {activeTab === 'settings' && <Settings />}
+          {!hasAccess(activeTab) ? (
+            <AccessDenied role={user.role} tab={activeTab} onBackToDashboard={() => setActiveTab('dashboard')} />
+          ) : (
+            <>
+              {activeTab === 'dashboard' && <Dashboard user={user} onTabChange={setActiveTab} />}
+              {activeTab === 'books' && <BookExplorer />}
+              {activeTab === 'members' && <MemberManagement />}
+              {activeTab === 'requests' && <LibraryRequests />}
+              {activeTab === 'issue' && <IssueReturn />}
+              {activeTab === 'fines' && <Fines />}
+              {activeTab === 'reports' && <Reports />}
+              {activeTab === 'history' && <ReadingHistory />}
+              {activeTab === 'leaderboard' && <Leaderboard />}
+              {activeTab === 'profile' && <Profile user={user} onProfileUpdate={setUser} />}
+              {activeTab === 'organizations' && <Organizations />}
+              {activeTab === 'audit_logs' && <AuditLogs />}
+              {activeTab === 'settings' && <Settings />}
+              {activeTab === 'billing' && <Billing user={user} onProfileUpdate={setUser} />}
+            </>
+          )}
         </div>
       </main>
 

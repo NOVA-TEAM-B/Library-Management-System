@@ -64,7 +64,23 @@ def add_book():
         cover_url=cover_url,
         rating=rating,
         popularity=popularity,
-        ai_recommendation_score=ai_score
+        ai_recommendation_score=ai_score,
+        org_id=data.get('org_id'),
+        publisher=data.get('publisher'),
+        edition=data.get('edition'),
+        rack_number=data.get('rack_number'),
+        shelf_number=data.get('shelf_number'),
+        floor=data.get('floor'),
+        library_branch=data.get('library_branch'),
+        lost_copies=int(data.get('lost_copies', 0)),
+        damaged_copies=int(data.get('damaged_copies', 0)),
+        repair_copies=int(data.get('repair_copies', 0)),
+        replacement_cost=float(data.get('replacement_cost', 0.0)),
+        subject=data.get('subject'),
+        accession_number=data.get('accession_number'),
+        is_digital=bool(data.get('is_digital', False)),
+        pdf_url=data.get('pdf_url'),
+        allow_download=bool(data.get('allow_download', True))
     )
     db.session.add(book)
     db.session.commit()
@@ -98,6 +114,23 @@ def update_book(book_id):
     
     if 'cover_url' in data:
         book.cover_url = data['cover_url']
+        
+    # Update new fields
+    book.publisher = data.get('publisher', book.publisher)
+    book.edition = data.get('edition', book.edition)
+    book.rack_number = data.get('rack_number', book.rack_number)
+    book.shelf_number = data.get('shelf_number', book.shelf_number)
+    book.floor = data.get('floor', book.floor)
+    book.library_branch = data.get('library_branch', book.library_branch)
+    book.lost_copies = int(data.get('lost_copies', book.lost_copies))
+    book.damaged_copies = int(data.get('damaged_copies', book.damaged_copies))
+    book.repair_copies = int(data.get('repair_copies', book.repair_copies))
+    book.replacement_cost = float(data.get('replacement_cost', book.replacement_cost))
+    book.subject = data.get('subject', book.subject)
+    book.accession_number = data.get('accession_number', book.accession_number)
+    book.is_digital = bool(data.get('is_digital', book.is_digital))
+    book.pdf_url = data.get('pdf_url', book.pdf_url)
+    book.allow_download = bool(data.get('allow_download', book.allow_download))
         
     db.session.commit()
     return jsonify({"msg": "Book catalog updated", "book": book.to_dict()}), 200

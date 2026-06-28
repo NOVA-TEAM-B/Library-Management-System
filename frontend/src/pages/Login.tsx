@@ -11,6 +11,15 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess, onBack }: LoginProps) {
+  const [loginTheme, setLoginTheme] = useState<'tokyo-night' | 'soft-sakura' | 'reading-room'>(() => {
+    return (localStorage.getItem('login_theme') as any) || 'tokyo-night';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('login_theme', loginTheme);
+  }, [loginTheme]);
+
+
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -32,6 +41,35 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
   const [otpStep, setOtpStep] = useState<1 | 2>(1);
   const [otpTimer, setOtpTimer] = useState(0);
+
+  const [orgLogo, setOrgLogo] = useState('/logo.png');
+  const [orgName, setOrgName] = useState('NOVA LIBRARY');
+
+  useEffect(() => {
+    const fetchBranding = async () => {
+      try {
+        const hostname = window.location.hostname;
+        let subdomain = '';
+        const parts = hostname.split('.');
+        if (parts.length > 2) {
+          subdomain = parts[0];
+        }
+        
+        const res = await fetch(`http://127.0.0.1:5000/api/auth/organization-branding?subdomain=${subdomain}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.name) setOrgName(data.name);
+          if (data.logo_url) {
+            const fullUrl = data.logo_url.startsWith('http') ? data.logo_url : `http://127.0.0.1:5000${data.logo_url}`;
+            setOrgLogo(fullUrl);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch organization branding:", err);
+      }
+    };
+    fetchBranding();
+  }, []);
 
   const digitRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -209,7 +247,19 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
     if (!ctx) return;
 
     let animationId: number;
-    let particles: Array<{ x: number; y: number; speedX: number; speedY: number; size: number }> = [];
+    let particles: Array<{
+      x: number;
+      y: number;
+      speedX: number;
+      speedY: number;
+      size: number;
+      opacity: number;
+      fadeDir: number;
+      type: 'circle' | 'petal' | 'heart' | 'leaf' | 'dust';
+      color: string;
+      rotation: number;
+      rotationSpeed: number;
+    }> = [];
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -218,43 +268,160 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
     window.addEventListener('resize', resize);
     resize();
 
-    // Create particles
-    for (let i = 0; i < 60; i++) {
+    let mouseX = canvas.width / 2;
+    let mouseY = canvas.height / 2;
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    };
+    if (loginTheme === 'soft-sakura') {
+      window.addEventListener('mousemove', handleMouseMove);
+    }
+
+    // Populate particles based on the theme
+    const count = 60;
+    for (let i = 0; i < count; i++) {
+      let type: 'circle' | 'petal' | 'heart' | 'leaf' | 'dust' = 'circle';
+      let color = 'rgba(255,255,255,0.2)';
+      
+      if (loginTheme === 'tokyo-night') {
+        type = Math.random() > 0.4 ? 'circle' : 'dust';
+        color = Math.random() > 0.5 ? 'rgba(14, 165, 233, 0.4)' : 'rgba(59, 130, 246, 0.3)';
+      } else if (loginTheme === 'soft-sakura') {
+        const rand = Math.random();
+        if (rand < 0.45) {
+          type = 'petal';
+          color = 'rgba(244, 114, 182, 0.6)';
+        } else if (rand < 0.55) {
+          type = 'heart';
+          color = 'rgba(251, 113, 133, 0.3)';
+        } else if (rand < 0.8) {
+          type = 'circle'; // bokeh
+          color = 'rgba(236, 72, 153, 0.15)';
+        } else {
+          type = 'dust';
+          color = 'rgba(253, 244, 245, 0.5)';
+        }
+      } else { // reading-room (brown)
+        const rand = Math.random();
+        if (rand < 0.35) {
+          type = 'leaf';
+          color = 'rgba(180, 83, 9, 0.4)';
+        } else {
+          type = 'dust';
+          color = Math.random() > 0.5 ? 'rgba(251, 191, 36, 0.4)' : 'rgba(217, 119, 6, 0.3)';
+        }
+      }
+
       particles.push({
         x: Math.random() * canvas.width,
         y: Math.random() * canvas.height,
-        speedX: (Math.random() - 0.5) * 0.8,
-        speedY: (Math.random() - 0.5) * 0.8,
-        size: Math.random() * 2 + 1
+        speedX: (Math.random() - 0.5) * (loginTheme === 'soft-sakura' ? 1.2 : 0.6),
+        speedY: (Math.random() - 0.5) * (loginTheme === 'soft-sakura' ? 1.0 : 0.6) + (loginTheme === 'soft-sakura' ? 0.35 : 0), // slow fall for sakura
+        size: Math.random() * (type === 'circle' && loginTheme === 'soft-sakura' ? 18 : 4) + (type === 'circle' && loginTheme === 'soft-sakura' ? 6 : 1),
+        opacity: Math.random() * 0.6 + 0.2,
+        fadeDir: Math.random() > 0.5 ? 1 : -1,
+        type,
+        color,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.02
       });
     }
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(255,255,255,0.2)';
       
       particles.forEach((p, idx) => {
+        // Opacity oscillation
+        p.opacity += p.fadeDir * 0.005;
+        if (p.opacity <= 0.1) {
+          p.opacity = 0.1;
+          p.fadeDir = 1;
+        } else if (p.opacity >= 0.8) {
+          p.opacity = 0.8;
+          p.fadeDir = -1;
+        }
+
+        // Apply mouse parallax to Sakura petals
+        let finalX = p.x;
+        let finalY = p.y;
+        if (loginTheme === 'soft-sakura') {
+          const dx = (mouseX - canvas.width / 2) * 0.015;
+          const dy = (mouseY - canvas.height / 2) * 0.015;
+          finalX += dx * (p.size / 10);
+          finalY += dy * (p.size / 10);
+        }
+
         p.x += p.speedX;
         p.y += p.speedY;
+        p.rotation += p.rotationSpeed;
 
-        if (p.x < 0 || p.x > canvas.width) p.speedX *= -1;
-        if (p.y < 0 || p.y > canvas.height) p.speedY *= -1;
+        // Reset or wrap particles
+        if (p.y > canvas.height + 20) {
+          p.y = -20;
+          p.x = Math.random() * canvas.width;
+        }
+        if (p.x < -20 || p.x > canvas.width + 20) {
+          p.x = p.x < -20 ? canvas.width + 20 : -20;
+        }
 
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.save();
+        ctx.translate(finalX, finalY);
+        ctx.rotate(p.rotation);
 
-        // Draw connections
-        for (let j = idx + 1; j < particles.length; j++) {
-          const p2 = particles[j];
-          const dist = Math.hypot(p.x - p2.x, p.y - p2.y);
-          if (dist < 100) {
-            ctx.strokeStyle = `rgba(14, 165, 233, ${0.1 * (1 - dist/100)})`;
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.stroke();
+        if (p.type === 'circle') {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fillStyle = p.color.replace(/[\d.]+\)$/, `${p.opacity})`);
+          ctx.fill();
+        } else if (p.type === 'dust') {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fillStyle = p.color.replace(/[\d.]+\)$/, `${p.opacity * 0.8})`);
+          ctx.fill();
+        } else if (p.type === 'petal') {
+          // Sakura petal shape
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.bezierCurveTo(-p.size, -p.size * 1.5, -p.size * 2, p.size * 0.5, 0, p.size * 2);
+          ctx.bezierCurveTo(p.size * 2, p.size * 0.5, p.size, -p.size * 1.5, 0, 0);
+          ctx.fillStyle = p.color.replace(/[\d.]+\)$/, `${p.opacity})`);
+          ctx.fill();
+        } else if (p.type === 'heart') {
+          // Subtle heart shape
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.bezierCurveTo(-p.size / 2, -p.size / 2, -p.size, p.size / 3, 0, p.size);
+          ctx.bezierCurveTo(p.size, p.size / 3, p.size / 2, -p.size / 2, 0, 0);
+          ctx.fillStyle = p.color.replace(/[\d.]+\)$/, `${p.opacity * 0.4})`);
+          ctx.fill();
+        } else if (p.type === 'leaf') {
+          // Warm leaf shape
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.quadraticCurveTo(-p.size * 1.2, -p.size * 0.5, 0, -p.size * 2);
+          ctx.quadraticCurveTo(p.size * 1.2, -p.size * 0.5, 0, 0);
+          ctx.fillStyle = p.color.replace(/[\d.]+\)$/, `${p.opacity})`);
+          ctx.fill();
+        }
+
+        ctx.restore();
+
+        // Connection lines logic (only for tokyo-night theme)
+        if (loginTheme === 'tokyo-night') {
+          for (let j = idx + 1; j < particles.length; j++) {
+            const p2 = particles[j];
+            if (p2.type === 'circle' && p.type === 'circle') {
+              const dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+              if (dist < 120) {
+                ctx.strokeStyle = `rgba(14, 165, 233, ${0.12 * (1 - dist / 120) * p.opacity * p2.opacity})`;
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(finalX, finalY);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+              }
+            }
           }
         }
       });
@@ -266,9 +433,12 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
 
     return () => {
       window.removeEventListener('resize', resize);
+      if (loginTheme === 'soft-sakura') {
+        window.removeEventListener('mousemove', handleMouseMove);
+      }
       cancelAnimationFrame(animationId);
     };
-  }, []);
+  }, [loginTheme]);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -368,19 +538,57 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
   const strokeDashoffset = circumference - (otpTimer / 30) * circumference;
 
   return (
-    <div className="relative min-h-screen w-screen flex items-center justify-center p-4 overflow-hidden bg-radial from-slate-900 to-slate-950">
+    <div 
+      style={
+        loginTheme === 'soft-sakura'
+          ? {
+              backgroundImage: "url('/anime_sakura_bg.png')",
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              backgroundAttachment: 'fixed',
+            }
+          : undefined
+      }
+      className={`relative min-h-screen w-screen flex items-center justify-center p-4 overflow-hidden transition-all duration-500 ${
+        loginTheme === 'tokyo-night' ? 'bg-radial from-slate-900 to-slate-950 text-slate-100' :
+        loginTheme === 'soft-sakura' ? 'text-slate-900 bg-pink-50' :
+        'text-yellow-100 bg-amber-950'
+      }`}
+    >
+      {/* Translucent blur overlay for Soft Sakura Theme */}
+      {loginTheme === 'soft-sakura' && (
+        <div 
+          className="absolute inset-0 z-0 pointer-events-none transition-all"
+          style={{
+            backdropFilter: 'blur(6px)',
+            backgroundColor: 'rgba(255, 255, 255, 0.18)'
+          }}
+        />
+      )}
+
       {/* Background Star Constellation Canvas */}
-      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" />
+      <canvas ref={canvasRef} className="absolute inset-0 z-0 pointer-events-none" style={{ opacity: loginTheme === 'tokyo-night' ? 1 : 0.1 }} />
 
       {/* Auth Box Container */}
       <motion.div 
         layout
-        className="relative z-10 glass-panel max-w-md w-full p-8 overflow-hidden rounded-[30px] pt-12 bg-slate-900/40 border border-white/10 shadow-2xl" 
+        className={`relative z-10 glass-panel max-w-md w-full p-8 overflow-hidden rounded-[30px] pt-12 border border-white/10 shadow-2xl transition-all duration-300 ${
+          loginTheme === 'tokyo-night' ? 'bg-slate-900/40' :
+          loginTheme === 'soft-sakura' ? 'bg-white/75 border-pink-300/40 shadow-[0_20px_50px_rgba(236,72,153,0.15)]' :
+          'bg-slate-900/40'
+        }`}
         style={{ backdropFilter: 'blur(40px)' }}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.4 }}
       >
+        {/* Theme selector pills */}
+        <div className="absolute top-4 right-6 flex gap-1.5 z-20">
+          <button type="button" onClick={() => setLoginTheme('tokyo-night')} className={`w-3 h-3 rounded-full bg-indigo-900 border ${loginTheme === 'tokyo-night' ? 'border-cyan-400 scale-110' : 'border-white/20'}`} title="Tokyo Night" />
+          <button type="button" onClick={() => setLoginTheme('soft-sakura')} className={`w-3 h-3 rounded-full bg-pink-300 border ${loginTheme === 'soft-sakura' ? 'border-rose-500 scale-110' : 'border-white/20'}`} title="Soft Sakura" />
+          <button type="button" onClick={() => setLoginTheme('reading-room')} className={`w-3 h-3 rounded-full bg-amber-800 border ${loginTheme === 'reading-room' ? 'border-yellow-400 scale-110' : 'border-white/20'}`} title="Reading Room" />
+        </div>
         {onBack && (
           <button 
             onClick={onBack}
@@ -401,12 +609,23 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
         {/* LOGO AND BRANDING */}
         <div className="text-center mb-6">
           <img
-            src="/logo.svg"
+            id="orgLogo"
+            src={orgLogo || '/logo.png'}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = '/logo.png';
+            }}
             alt="Nova Logo"
-            className="w-20 h-20 rounded-full mx-auto mb-3 object-cover border-2 border-cyan-500/20 shadow-2xl hover:border-cyan-400 duration-300"
+            className={`w-[70px] h-[70px] rounded-full mx-auto mb-3 object-contain border-2 shadow-2xl duration-300 ${
+              loginTheme === 'soft-sakura'
+                ? 'border-pink-300 shadow-[0_0_15px_rgba(236,72,153,0.4)]'
+                : 'border-cyan-500/20 hover:border-cyan-400'
+            }`}
           />
-          <h2 className="text-xl font-extrabold text-white tracking-wide font-sans m-0 uppercase bg-gradient-to-r from-blue-400 via-cyan-300 to-purple-400 bg-clip-text text-transparent">NOVA LIBRARY</h2>
-          <span className="text-[9px] text-cyan-400 font-bold uppercase tracking-widest block mt-1">Smart Library Management System</span>
+          <h2 className="text-xl font-extrabold text-white tracking-wide font-sans m-0 uppercase bg-gradient-to-r from-blue-400 via-cyan-300 to-purple-400 bg-clip-text text-transparent">{orgName}</h2>
+          <span className={`text-[9px] text-cyan-400 font-bold uppercase tracking-widest block mt-1 ${
+            loginTheme === 'soft-sakura' ? 'text-pink-600' : ''
+          }`}>Smart Library Management System</span>
         </div>
 
         {/* ALERTS */}
@@ -446,16 +665,30 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
               transition={{ duration: 0.25 }}
             >
               {/* LOGIN METHOD SELECTION */}
-              <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 mb-6 text-xs text-white/70">
+              <div className={`flex bg-white/5 border border-white/10 rounded-xl p-1 mb-6 text-xs text-white/70 ${
+                loginTheme === 'soft-sakura' ? 'border-pink-200/45 text-pink-700' : ''
+              }`}>
                 <button
                   onClick={() => setLoginMethod('password')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${loginMethod === 'password' ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/10' : 'hover:bg-white/5 hover:text-white'}`}
+                  className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+                    loginMethod === 'password'
+                      ? loginTheme === 'soft-sakura'
+                        ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/10'
+                        : 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/10'
+                      : 'hover:bg-white/5 hover:text-white'
+                  }`}
                 >
                   Password Access
                 </button>
                 <button
                   onClick={() => setLoginMethod('otp')}
-                  className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${loginMethod === 'otp' ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/10' : 'hover:bg-white/5 hover:text-white'}`}
+                  className={`flex-1 py-1.5 rounded-lg font-medium transition-all ${
+                    loginMethod === 'otp'
+                      ? loginTheme === 'soft-sakura'
+                        ? 'bg-pink-500 text-white shadow-lg shadow-pink-500/10'
+                        : 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/10'
+                      : 'hover:bg-white/5 hover:text-white'
+                  }`}
                 >
                   Secure OTP
                 </button>
@@ -465,51 +698,82 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
               {loginMethod === 'password' && (
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
-                    <label className="text-white/60 text-xs font-semibold block mb-1">Username / Email</label>
+                    <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                    }`}>Username / Email</label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-white/40"><User className="w-4 h-4" /></span>
+                      <span className={`absolute inset-y-0 left-0 pl-3 flex items-center text-white/40 ${
+                        loginTheme === 'soft-sakura' ? 'text-pink-400' : ''
+                      }`}><User className="w-4 h-4" /></span>
                       <input
                         type="text"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         placeholder="Enter username or email"
                         required
-                        className="w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20"
+                        className={`w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 ${
+                          loginTheme === 'soft-sakura'
+                            ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 focus:ring-pink-500/20 shadow-sm'
+                            : ''
+                        }`}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-white/60 text-xs font-semibold block mb-1">Password</label>
+                    <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                    }`}>Password</label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-white/40"><Lock className="w-4 h-4" /></span>
+                      <span className={`absolute inset-y-0 left-0 pl-3 flex items-center text-white/40 ${
+                        loginTheme === 'soft-sakura' ? 'text-pink-400' : ''
+                      }`}><Lock className="w-4 h-4" /></span>
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="Enter password"
                         required
-                        className="w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-10 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20"
+                        className={`w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-10 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 ${
+                          loginTheme === 'soft-sakura'
+                            ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 focus:ring-pink-500/20 shadow-sm'
+                            : ''
+                        }`}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-white/40 hover:text-white"
+                        className={`absolute inset-y-0 right-0 pr-3 flex items-center text-white/40 hover:text-white ${
+                          loginTheme === 'soft-sakura' ? 'text-pink-400 hover:text-pink-600' : ''
+                        }`}
                       >
                         {showPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center text-[10px] text-white/50 pt-1">
+                  <div className={`flex justify-between items-center text-[10px] text-white/50 pt-1 ${
+                    loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                  }`}>
                     <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="checkbox" className="rounded bg-transparent border-white/20 focus:ring-0 focus:ring-offset-0 text-cyan-500" />
+                      <input type="checkbox" className={`rounded bg-transparent border-white/20 focus:ring-0 focus:ring-offset-0 text-cyan-500 ${
+                        loginTheme === 'soft-sakura' ? 'border-pink-300 text-pink-500' : ''
+                      }`} />
                       <span>Keep Node Active</span>
                     </label>
-                    <a href="#" onClick={() => triggerNotification('Reset instructions generated!', 'success')} className="hover:text-cyan-400">Forget Access Key?</a>
+                    <a href="#" onClick={() => triggerNotification('Reset instructions generated!', 'success')} className={`hover:text-cyan-400 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-600 hover:text-pink-700 font-semibold' : ''
+                    }`}>Forget Access Key?</a>
                   </div>
 
-                  <button type="submit" className="w-full mt-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-semibold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer">
+                  <button 
+                    type="submit" 
+                    className={`w-full mt-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-semibold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer ${
+                      loginTheme === 'soft-sakura'
+                        ? 'from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600 shadow-pink-500/10 hover:shadow-[0_0_15px_rgba(236,72,153,0.4)]'
+                        : ''
+                    }`}
+                  >
                     Sign In to System
                   </button>
 
@@ -573,20 +837,35 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
               {loginMethod === 'otp' && (
                 <form onSubmit={handleGenerateOTP} className="space-y-4">
                   <div>
-                    <label className="text-white/60 text-xs font-semibold block mb-1">Registered Email or Phone</label>
+                    <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                    }`}>Registered Email or Phone</label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-white/40"><Mail className="w-4 h-4" /></span>
+                      <span className={`absolute inset-y-0 left-0 pl-3 flex items-center text-white/40 ${
+                        loginTheme === 'soft-sakura' ? 'text-pink-400' : ''
+                      }`}><Mail className="w-4 h-4" /></span>
                       <input
                         type="text"
                         placeholder="e.g. john.doe@mit.edu"
                         value={otpIdentifier}
                         onChange={(e) => setOtpIdentifier(e.target.value)}
                         required
-                        className="w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20"
+                        className={`w-full bg-slate-950/40 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 ${
+                          loginTheme === 'soft-sakura'
+                            ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 focus:ring-pink-500/20 shadow-sm'
+                            : ''
+                        }`}
                       />
                     </div>
                   </div>
-                  <button type="submit" className="w-full mt-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-semibold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer">
+                  <button 
+                    type="submit" 
+                    className={`w-full mt-4 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-semibold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer ${
+                      loginTheme === 'soft-sakura'
+                        ? 'from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600 shadow-pink-500/10 hover:shadow-[0_0_15px_rgba(236,72,153,0.4)]'
+                        : ''
+                    }`}
+                  >
                     Request OTP Code
                   </button>
                 </form>
@@ -615,46 +894,70 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
             >
               <form onSubmit={handleRegisterSubmit} className="space-y-3">
                 <div>
-                  <label className="text-white/60 text-xs font-semibold block mb-1">Username</label>
+                  <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                    loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                  }`}>Username</label>
                   <input
                     type="text"
                     value={regUsername}
                     onChange={(e) => setRegUsername(e.target.value)}
                     placeholder="e.g. library_guest"
                     required
-                    className="w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400"
+                    className={`w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 ${
+                      loginTheme === 'soft-sakura'
+                        ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 shadow-sm'
+                        : ''
+                    }`}
                   />
                 </div>
                 <div>
-                  <label className="text-white/60 text-xs font-semibold block mb-1">Email Address</label>
+                  <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                    loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                  }`}>Email Address</label>
                   <input
                     type="email"
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     placeholder="e.g. guest@mits.edu"
                     required
-                    className="w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400"
+                    className={`w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 ${
+                      loginTheme === 'soft-sakura'
+                        ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 shadow-sm'
+                        : ''
+                    }`}
                   />
                 </div>
                 <div>
-                  <label className="text-white/60 text-xs font-semibold block mb-1">Password</label>
+                  <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                    loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                  }`}>Password</label>
                   <input
                     type="password"
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="Min 6 characters"
                     required
-                    className="w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400"
+                    className={`w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 ${
+                      loginTheme === 'soft-sakura'
+                        ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 shadow-sm'
+                        : ''
+                    }`}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-white/60 text-xs font-semibold block mb-1">Department</label>
+                    <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                    }`}>Department</label>
                     <select
                       value={regDept}
                       onChange={(e) => setRegDept(e.target.value)}
-                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400"
-                      style={{ background: '#0f172a' }}
+                      className={`w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 ${
+                        loginTheme === 'soft-sakura'
+                          ? 'bg-white/85 border-pink-300/60 text-slate-800 focus:border-pink-500 shadow-sm'
+                          : ''
+                      }`}
+                      style={{ background: loginTheme === 'soft-sakura' ? 'rgba(255, 255, 255, 0.85)' : '#0f172a' }}
                     >
                       <option value="Computer Science">Computer Science</option>
                       <option value="Physics">Physics</option>
@@ -663,26 +966,43 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                     </select>
                   </div>
                   <div>
-                    <label className="text-white/60 text-xs font-semibold block mb-1">Phone</label>
+                    <label className={`text-white/60 text-xs font-semibold block mb-1 ${
+                      loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                    }`}>Phone</label>
                     <input
                       type="text"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
                       placeholder="e.g. +919876543210"
-                      className="w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400"
+                      className={`w-full bg-slate-950/40 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-cyan-400 ${
+                        loginTheme === 'soft-sakura'
+                          ? 'bg-white/85 border-pink-300/60 text-slate-800 placeholder-pink-400/70 focus:border-pink-500 shadow-sm'
+                          : ''
+                      }`}
                     />
                   </div>
                 </div>
 
-                <button type="submit" className="w-full mt-4 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-purple-600 hover:to-cyan-600 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer">
+                <button 
+                  type="submit" 
+                  className={`w-full mt-4 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-purple-600 hover:to-cyan-600 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer ${
+                    loginTheme === 'soft-sakura'
+                      ? 'from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600 shadow-pink-500/10 hover:shadow-[0_0_15px_rgba(236,72,153,0.4)] border-pink-300/40'
+                      : ''
+                  }`}
+                >
                   Initialize Membership
                 </button>
 
                 <div className="text-center pt-2">
-                  <span className="text-xs text-white/50">
+                  <span className={`text-xs text-white/50 ${
+                    loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                  }`}>
                     Already authenticated?{' '}
                     <span 
-                      className="text-cyan-400 font-semibold cursor-pointer underline hover:text-cyan-300" 
+                      className={`text-cyan-400 font-semibold cursor-pointer underline hover:text-cyan-300 ${
+                        loginTheme === 'soft-sakura' ? 'text-pink-600 hover:text-pink-700' : ''
+                      }`} 
                       onClick={() => setIsRegister(false)}
                     >
                       Sign In
@@ -702,33 +1022,45 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md"
+            className={`fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md ${
+              loginTheme === 'soft-sakura' ? 'bg-pink-950/20' : 'bg-slate-950/80'
+            }`}
           >
             <motion.div
               initial={{ scale: 0.9, y: 20, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 20, opacity: 0 }}
               transition={{ type: "spring", damping: 25, stiffness: 350 }}
-              className="relative w-full max-w-md p-8 glass-panel bg-slate-900/60 border border-white/10 rounded-[30px] shadow-2xl text-center"
+              className={`relative w-full max-w-md p-8 glass-panel border border-white/10 rounded-[30px] shadow-2xl text-center transition-all duration-300 ${
+                loginTheme === 'soft-sakura'
+                  ? 'bg-white/90 border-pink-300 shadow-[0_20px_50px_rgba(236,72,153,0.15)] text-slate-800'
+                  : 'bg-slate-900/60 text-white'
+              }`}
             >
               {/* Close Button */}
               <button 
                 onClick={() => { setOtpStep(1); setOtpDigits(Array(6).fill('')); }}
-                className="absolute top-5 right-5 text-white/50 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-all cursor-pointer"
+                className={`absolute top-5 right-5 p-1.5 rounded-full transition-all cursor-pointer ${
+                  loginTheme === 'soft-sakura' ? 'text-pink-400 hover:text-pink-600 hover:bg-pink-100' : 'text-white/50 hover:text-white hover:bg-white/10'
+                }`}
               >
                 <X className="w-4 h-4" />
               </button>
 
               {/* Icon */}
-              <div className="w-14 h-14 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(6,182,212,0.15)]">
-                <Key className="w-6 h-6 text-cyan-400" />
+              <div className={`w-14 h-14 border rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(6,182,212,0.15)] ${
+                loginTheme === 'soft-sakura'
+                  ? 'bg-pink-50 border-pink-300 shadow-[0_0_20px_rgba(236,72,153,0.2)]'
+                  : 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border-cyan-500/30'
+              }`}>
+                <Key className={`w-6 h-6 ${loginTheme === 'soft-sakura' ? 'text-pink-600' : 'text-cyan-400'}`} />
               </div>
 
               {/* Title & Desc */}
-              <h3 className="text-xl font-bold text-white tracking-wide">Enter Verification Code</h3>
-              <p className="text-white/60 text-xs mt-2 px-4 leading-relaxed">
+              <h3 className={`text-xl font-bold tracking-wide ${loginTheme === 'soft-sakura' ? 'text-slate-800' : 'text-white'}`}>Enter Verification Code</h3>
+              <p className={`text-xs mt-2 px-4 leading-relaxed ${loginTheme === 'soft-sakura' ? 'text-slate-600' : 'text-white/60'}`}>
                 We've sent a 6-digit access code to:<br/>
-                <strong className="text-cyan-400 font-mono mt-1 block">{maskIdentifier(otpIdentifier)}</strong>
+                <strong className={`font-mono mt-1 block ${loginTheme === 'soft-sakura' ? 'text-pink-600' : 'text-cyan-400'}`}>{maskIdentifier(otpIdentifier)}</strong>
               </p>
 
               {/* 6 Digit Inputs container */}
@@ -745,7 +1077,11 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                       onKeyDown={(e) => handleDigitKeyDown(idx, e)}
                       onPaste={handleDigitPaste}
                       ref={(el) => { digitRefs.current[idx] = el; }}
-                      className="w-12 h-14 text-center font-mono font-bold text-xl bg-slate-950/60 border border-white/10 rounded-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 focus:outline-none text-white selection:bg-cyan-500/30"
+                      className={`w-12 h-14 text-center font-mono font-bold text-xl bg-slate-950/60 border border-white/10 rounded-xl focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/20 focus:outline-none text-white selection:bg-cyan-500/30 ${
+                        loginTheme === 'soft-sakura'
+                          ? 'bg-white border-pink-300 text-slate-800 focus:border-pink-500 focus:ring-pink-500/20 shadow-sm'
+                          : ''
+                      }`}
                     />
                   ))}
                 </div>
@@ -759,14 +1095,14 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                           cx="20"
                           cy="20"
                           r={radius}
-                          className="stroke-white/10 fill-none"
+                          className={`${loginTheme === 'soft-sakura' ? 'stroke-pink-100' : 'stroke-white/10'} fill-none`}
                           strokeWidth={strokeWidth}
                         />
                         <circle
                           cx="20"
                           cy="20"
                           r={radius}
-                          className="stroke-cyan-400 fill-none transition-all duration-1000 ease-linear origin-center -rotate-90"
+                          className={`${loginTheme === 'soft-sakura' ? 'stroke-pink-500' : 'stroke-cyan-400'} fill-none transition-all duration-1000 ease-linear origin-center -rotate-90`}
                           strokeWidth={strokeWidth}
                           strokeDasharray={circumference}
                           strokeDashoffset={strokeDashoffset}
@@ -775,19 +1111,23 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                         <text
                           x="20"
                           y="24"
-                          className="fill-white text-[10px] font-bold text-center"
+                          className={`${loginTheme === 'soft-sakura' ? 'fill-slate-800' : 'fill-white'} text-[10px] font-bold text-center`}
                           textAnchor="middle"
                         >
                           {otpTimer}
                         </text>
                       </svg>
-                      <span className="text-[10px] text-white/50 font-semibold tracking-wide">OTP valid for 2 minutes</span>
+                      <span className={`text-[10px] font-semibold tracking-wide ${loginTheme === 'soft-sakura' ? 'text-slate-500' : 'text-white/50'}`}>OTP valid for 2 minutes</span>
                     </div>
                   ) : (
                     <button
                       type="button"
                       onClick={() => handleGenerateOTP()}
-                      className="group flex items-center gap-1.5 text-yellow-400 hover:text-yellow-300 font-bold text-xs bg-white/5 border border-white/10 hover:border-yellow-400/30 rounded-xl px-4 py-2 transition-all cursor-pointer hover:scale-[1.02] shadow-lg shadow-yellow-500/5"
+                      className={`group flex items-center gap-1.5 font-bold text-xs bg-white/5 border rounded-xl px-4 py-2 transition-all cursor-pointer hover:scale-[1.02] shadow-lg ${
+                        loginTheme === 'soft-sakura'
+                          ? 'text-pink-600 border-pink-300 hover:border-pink-500 hover:text-pink-700 bg-white shadow-pink-500/5'
+                          : 'text-yellow-400 hover:text-yellow-300 border-white/10 hover:border-yellow-400/30 shadow-yellow-500/5'
+                      }`}
                     >
                       <RefreshCw className="w-3.5 h-3.5 group-hover:rotate-180 duration-500" />
                       <span>Resend Verification Code</span>
@@ -799,13 +1139,21 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                   <button
                     type="button"
                     onClick={() => { setOtpStep(1); setOtpDigits(Array(6).fill('')); }}
-                    className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white font-semibold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                    className={`flex-1 font-semibold py-2.5 rounded-xl text-xs transition-all cursor-pointer ${
+                      loginTheme === 'soft-sakura'
+                        ? 'bg-pink-100 hover:bg-pink-200 border border-pink-300/40 text-pink-700'
+                        : 'bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white'
+                    }`}
                   >
                     Change Destination
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-blue-500 hover:to-cyan-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg shadow-cyan-500/10 transition-all cursor-pointer"
+                    className={`flex-1 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition-all cursor-pointer ${
+                      loginTheme === 'soft-sakura'
+                        ? 'bg-gradient-to-r from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600 shadow-pink-500/10'
+                        : 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-blue-500 hover:to-cyan-500 shadow-cyan-500/10'
+                    }`}
                   >
                     Verify Node
                   </button>

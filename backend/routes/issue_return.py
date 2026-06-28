@@ -87,11 +87,18 @@ def return_book(issue_id):
     now = datetime.utcnow()
     issue.return_date = now
     
-    # Calculate final fine
+    # Calculate final fine dynamically using tenant configurations
+    from backend.models.Organization import Organization
+    org = Organization.query.get(issue.org_id) if issue.org_id else None
+    fine_rate = org.fine_rate if org else 5.0
+    max_fine_limit = org.max_fine_limit if (org and hasattr(org, 'max_fine_limit')) else 500.0
+    
     fine_amount = 0.0
     if now > issue.due_date:
         days_overdue = (now - issue.due_date).days
-        fine_amount = days_overdue * 5.0 # Fine rate: 5 per day
+        fine_amount = days_overdue * fine_rate
+        if fine_amount > max_fine_limit:
+            fine_amount = max_fine_limit
         
     issue.fine_amount = fine_amount
     issue.status = 'returned'
@@ -102,6 +109,36 @@ def return_book(issue_id):
         book.quantity += 1
         book.availability = True
         
+        # Check active reservations waiting list (reservation queue)
+        from backend.models.Reservation import Reservation
+        from backend.models.Notification import Notification
+        from backend.services.notification_service import NotificationService
+        
+        pending_res = Reservation.query.filter_by(book_id=book.id, status='pending').order_by(Reservation.reservation_date.asc()).first()
+        if pending_res:
+            # Auto assign and notify next student
+            pending_res.status = 'approved'
+            
+            # Create in-app alert
+            notif = Notification(
+                user_id=pending_res.member_id,
+                title="Reserved Book Available",
+                message=f"The book '{book.title}' you reserved is now available! Please collect it from the counter within 48 hours.",
+                org_id=pending_res.org_id
+            )
+            db.session.add(notif)
+            
+            # Send email notification
+            if pending_res.member and pending_res.member.email:
+                try:
+                    NotificationService.send_email(
+                        to_email=pending_res.member.email,
+                        subject=f"Reserved Book Available: {book.title}",
+                        body=f"Dear {pending_res.member.username},\n\nGood news! The book '{book.title}' by {book.author} has been returned and is now reserved for you.\n\nPlease collect it from the library desk within 48 hours.\n\nBest regards,\nNova College Library Node"
+                    )
+                except Exception as mail_err:
+                    print(f"Error sending reservation availability email: {mail_err}", flush=True)
+
     # Create Fine record if penalty accrued
     fine_id = None
     if fine_amount > 0:
@@ -111,7 +148,8 @@ def return_book(issue_id):
                 issue_id=issue.id,
                 member_id=issue.member_id,
                 amount=fine_amount,
-                status='pending'
+                status='pending',
+                org_id=issue.org_id
             )
             db.session.add(fine)
             db.session.commit() # Save to get ID
@@ -119,6 +157,16 @@ def return_book(issue_id):
             fine.amount = fine_amount
             db.session.commit()
         fine_id = fine.id
+        
+        # Create fine notification
+        from backend.models.Notification import Notification
+        notif = Notification(
+            user_id=issue.member_id,
+            title="Fine Generated",
+            message=f"An overdue fine of INR {fine_amount} has been generated for returned book '{book.title if book else ''}'.",
+            org_id=issue.org_id
+        )
+        db.session.add(notif)
         
     db.session.commit()
     
@@ -162,7 +210,48 @@ def get_fines():
 @role_required('admin', 'librarian')
 def pay_fine(fine_id):
     try:
-        fine = FineService.settle_fine(fine_id)
-        return jsonify({"msg": "Fine settled successfully", "fine": fine.to_dict()}), 200
+        approver_id = int(get_jwt_identity())
+        data = request.get_json() or {}
+        transaction_reference = data.get('transaction_reference')
+        
+        fine = FineService.settle_fine(
+            fine_id, 
+            approver_id=approver_id, 
+            transaction_reference=transaction_reference
+        )
+        return jsonify({"msg": "Fine approved and settled successfully", "fine": fine.to_dict()}), 200
     except Exception as e:
         return jsonify({"msg": str(e)}), 400
+
+@issue_return_bp.route('/fines/<int:fine_id>/waive', methods=['POST'])
+@jwt_required()
+@role_required('admin', 'librarian')
+def waive_fine(fine_id):
+    fine = Fine.query.get(fine_id)
+    if not fine:
+        return jsonify({"msg": "Fine record not found"}), 404
+        
+    fine.amount = 0.0
+    fine.status = 'paid'
+    fine.transaction_reference = 'WAIVED'
+    fine.payment_date = datetime.utcnow()
+    fine.approver_id = int(get_jwt_identity())
+    
+    # Update associated issue fine amount to reflect waiver
+    if fine.issue:
+        fine.issue.fine_amount = 0.0
+        
+    db.session.commit()
+    
+    # Create notification for student
+    from backend.models.Notification import Notification
+    notif = Notification(
+        user_id=fine.member_id,
+        title="Fine Waived",
+        message="A pending library fine on your account has been waived by the librarian.",
+        org_id=fine.org_id
+    )
+    db.session.add(notif)
+    db.session.commit()
+    
+    return jsonify({"msg": "Fine successfully waived", "fine": fine.to_dict()}), 200

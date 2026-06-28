@@ -3,6 +3,9 @@ import Chart from 'react-apexcharts';
 import { FileText, Download, Play, Table, BarChart2, PieChart } from 'lucide-react';
 
 export default function Reports() {
+  const userStr = localStorage.getItem('nova_user');
+  const user = userStr ? JSON.parse(userStr) : null;
+
   const [reportType, setReportType] = useState('books');
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<any[]>([]);
@@ -100,10 +103,40 @@ export default function Reports() {
     }
   };
 
-  const handleExport = (format: string) => {
-    const token = localStorage.getItem('nova_jwt_token');
-    window.location.href = `http://127.0.0.1:5000/api/reports/export?type=${reportType}&format=${format}&Authorization=Bearer%20${token}`;
+  const handleExport = async (format: string) => {
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch(`http://127.0.0.1:5000/api/reports/export?type=${reportType}&format=${format}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.msg || `Server returned status ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(now.getUTCDate()).padStart(2, '0');
+      
+      a.download = `nova_x_${reportType}_report_${year}${month}${day}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Export failed: ${err.message}`);
+    }
   };
+
 
   // Chart configs
   const donutOptions = (labels: string[]) => ({
@@ -126,6 +159,27 @@ export default function Reports() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Printable Report Header */}
+      {user && (
+        <div className="hidden print:flex items-center justify-between border-b-2 border-slate-300 pb-4 mb-6 text-slate-900">
+          <div className="flex items-center gap-3">
+            {user.org_logo ? (
+              <img src={user.org_logo} className="w-14 h-14 object-contain bg-slate-50 border border-slate-200 p-1 rounded-xl" alt="Logo" />
+            ) : (
+              <img src="/logo-icon.svg?v=2" className="w-14 h-14 object-contain bg-slate-50 border border-slate-200 p-1 rounded-xl" alt="Logo" />
+            )}
+            <div>
+              <h1 className="text-lg font-black tracking-wide uppercase m-0 text-slate-900">{user.org_name || 'NOVA LIBRARY'}</h1>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest block mt-0.5">Official Compiled Report</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="text-[8px] text-slate-400 font-bold block uppercase tracking-wider">Report Compiled Date</span>
+            <span className="text-xs font-mono font-bold text-slate-800">{new Date().toISOString().split('T')[0]}</span>
+          </div>
+        </div>
+      )}
+
       {/* Configuration Header Card */}
       <div className="glass-panel p-5 border-white/10" data-aos="fade-up">
         <h4 className="text-white text-base font-semibold mb-4"><i className="fas fa-file-contract text-warning me-2"></i>Enterprise Report Compiler</h4>
@@ -156,18 +210,30 @@ export default function Reports() {
             </button>
           </div>
 
-          <div className="col-md-4 d-flex items-end justify-end gap-2">
+          <div className="col-md-4 d-flex items-end justify-end gap-2 flex-wrap">
             {compiled && (
               <>
                 <button
                   onClick={() => handleExport('csv')}
-                  className="bg-yellow-400 hover:bg-yellow-500 text-blue-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1 shadow-lg transition-all"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" /> Export CSV
+                  <Download className="w-3.5 h-3.5" /> CSV
+                </button>
+                <button
+                  onClick={() => handleExport('xlsx')}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" /> Excel
+                </button>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" /> PDF
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="btn btn-glass text-xs py-2 px-3 text-white/80"
+                  className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
                 >
                   Print
                 </button>

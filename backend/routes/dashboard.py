@@ -166,16 +166,31 @@ def get_dashboard_stats():
                 "status": r.status
             })
 
-        # Notifications - fetch audit logs related to this user
-        user_audits = AuditLog.query.filter_by(user_id=user_id).order_by(AuditLog.created_at.desc()).limit(10).all()
+        # Notifications from Notification model
+        from backend.models.Notification import Notification
+        user_notifs = Notification.query.filter_by(user_id=user_id).order_by(Notification.created_at.desc()).limit(10).all()
         notification_list = [
             {
-                "id": log.id,
-                "message": log.action + " - " + (log.details or ""),
-                "date": log.created_at.strftime('%Y-%m-%d %H:%M')
+                "id": n.id,
+                "message": n.title + ": " + n.message,
+                "date": n.created_at.strftime('%Y-%m-%d %H:%M'),
+                "is_read": n.is_read
             }
-            for log in user_audits
+            for n in user_notifs
         ]
+        
+        # Fallback to audits if notifications are empty
+        if not notification_list:
+            user_audits = AuditLog.query.filter_by(user_id=user_id).order_by(AuditLog.created_at.desc()).limit(10).all()
+            notification_list = [
+                {
+                    "id": log.id,
+                    "message": log.action + " - " + (log.details or ""),
+                    "date": log.created_at.strftime('%Y-%m-%d %H:%M'),
+                    "is_read": True
+                }
+                for log in user_audits
+            ]
 
         # Scoped trends for student (books read per month over last 6 months)
         read_counts = {name: 0 for _, name in months}
@@ -189,6 +204,16 @@ def get_dashboard_stats():
         for i in all_user_issues:
             cat = i.book.category
             user_categories[cat] = user_categories.get(cat, 0) + 1
+
+        # Recommendations based on user categories and popularity
+        from backend.routes.enterprise import get_recommendations
+        rec_res, rec_code = get_recommendations()
+        recommended_books = rec_res.get_json() if rec_code == 200 else []
+
+        # Calendar events aggregator
+        from backend.routes.enterprise import get_calendar_events
+        cal_res, cal_code = get_calendar_events()
+        calendar_events = cal_res.get_json() if cal_code == 200 else []
 
         return jsonify({
             "role": "member",
@@ -204,6 +229,8 @@ def get_dashboard_stats():
             "reading_history": history_list,
             "reservations": reservation_list,
             "notifications": notification_list,
+            "recommended_books": recommended_books,
+            "calendar_events": calendar_events,
             "issue_trends": {
                 "labels": list(read_counts.keys()),
                 "data": list(read_counts.values())
@@ -212,20 +239,51 @@ def get_dashboard_stats():
         }), 200
 
     # --------------------------------------------------
-    # 3. ORGANIZATION ADMIN / LIBRARIAN VIEWS
+    # 3. LIBRARIAN / ADMIN VIEW: Multi-Tenant Scoped Metrics
     # --------------------------------------------------
-    # Total count metrics scoped to organization
     total_books = Book.query.filter_by(org_id=org_id).count()
     total_members = User.query.filter_by(role='member', org_id=org_id).count()
+    active_students = User.query.filter_by(role='member', status='active', org_id=org_id).count()
     books_issued = Issue.query.filter_by(org_id=org_id).filter(Issue.status.in_(['issued', 'overdue'])).count()
     reservations = Reservation.query.filter_by(org_id=org_id, status='pending').count()
     total_revenue = db.session.query(db.func.sum(Fine.amount)).filter_by(org_id=org_id, status='paid').scalar() or 0.0
     
+    # Today's Issues & Returns
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_issues = Issue.query.filter_by(org_id=org_id).filter(Issue.issue_date >= today_start).all()
+    today_returns = Issue.query.filter_by(org_id=org_id, status='returned').filter(Issue.return_date >= today_start).all()
+    
+    # Pending Renewals
+    pending_renewals = Issue.query.filter_by(org_id=org_id, renewal_requested=True).all()
+    
+    # Overdue details
+    overdue_details = Issue.query.filter_by(org_id=org_id, status='overdue').all()
+    
+    # Active/Pending Reservations details
+    pending_res_details = Reservation.query.filter_by(org_id=org_id, status='pending').all()
+    
+    # Popular Books (Top 5)
+    popular_books = Book.query.filter_by(org_id=org_id).order_by(Book.popularity.desc()).limit(5).all()
+    
+    # Staff / admin actions log
+    staff_audits = AuditLog.query.filter(AuditLog.user_id.in_(
+        db.session.query(User.id).filter(User.role.in_(['admin', 'librarian']), User.org_id == org_id)
+    )).order_by(AuditLog.created_at.desc()).limit(10).all()
+    
+    staff_activity = [
+        {
+            "username": log.user.username if log.user else "System",
+            "action": log.action,
+            "details": log.details,
+            "date": log.created_at.strftime('%Y-%m-%d %H:%M')
+        }
+        for log in staff_audits
+    ]
+    
     # Activity Feed scoped to org
     recent_activities = []
-    
-    issues = Issue.query.filter_by(org_id=org_id).order_by(Issue.issue_date.desc()).limit(5).all()
-    for i in issues:
+    issues_for_feed = Issue.query.filter_by(org_id=org_id).order_by(Issue.issue_date.desc()).limit(5).all()
+    for i in issues_for_feed:
         recent_activities.append({
             "type": "issue",
             "message": f"Book '{i.book.title}' checked out to {i.member.username}",
@@ -299,16 +357,42 @@ def get_dashboard_stats():
         }
         for b in low_stock
     ]
+
+    # In-app notifications for librarian/admin
+    from backend.models.Notification import Notification
+    admin_notifs = Notification.query.filter_by(user_id=1).order_by(Notification.created_at.desc()).limit(10).all()
+    admin_notifications_list = [
+        {
+            "id": n.id,
+            "message": n.title + ": " + n.message,
+            "date": n.created_at.strftime('%Y-%m-%d %H:%M'),
+            "is_read": n.is_read
+        }
+        for n in admin_notifs
+    ]
     
     return jsonify({
         "role": role,
         "kpis": {
             "total_books": total_books,
-            "total_members": total_members,
+            "available_books": max(0, total_books - books_issued),
             "books_issued": books_issued,
             "reservations": reservations,
-            "revenue": total_revenue
+            "revenue": total_revenue,
+            "total_members": total_members,
+            "active_students": active_students
         },
+        "today_issues_count": len(today_issues),
+        "today_issues": [ti.to_dict() for ti in today_issues],
+        "today_returns_count": len(today_returns),
+        "today_returns": [tr.to_dict() for tr in today_returns],
+        "pending_reservations": [pr.to_dict() for pr in pending_res_details],
+        "pending_renewals_count": len(pending_renewals),
+        "pending_renewals": [pr.to_dict() for pr in pending_renewals],
+        "overdue_books": [ob.to_dict() for ob in overdue_details],
+        "popular_books": [pb.to_dict() for pb in popular_books],
+        "staff_activity": staff_activity,
+        "notifications": admin_notifications_list,
         "recent_activity": recent_activities,
         "popular_categories": popular_categories,
         "issue_trends": issue_trends,

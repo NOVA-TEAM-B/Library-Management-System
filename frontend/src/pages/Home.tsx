@@ -29,6 +29,139 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
   const [homeOtpError, setHomeOtpError] = useState('');
   const [homeOtpSuccess, setHomeOtpSuccess] = useState('');
 
+  // Payment states
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'Standard' | 'Enterprise' | null>(null);
+  const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
+  const [paymentError, setPaymentError] = useState('');
+  const [transactionId, setTransactionId] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+
+  // Enterprise Contact Form states
+  const [enterpriseFormOpen, setEnterpriseFormOpen] = useState(false);
+  const [enterpriseSent, setEnterpriseSent] = useState(false);
+  const [enterpriseData, setEnterpriseData] = useState({
+    org_name: '',
+    contact_person: '',
+    phone: '',
+    email: '',
+    campus_count: '1',
+    expected_users: '100',
+    requirements: ''
+  });
+
+  const handlePlanClick = (plan: 'Standard' | 'Enterprise') => {
+    const token = localStorage.getItem('nova_jwt_token');
+    if (token) {
+      setSelectedPlan(plan);
+      setPaymentStatus('idle');
+      setPaymentError('');
+      setPaymentModalOpen(true);
+    } else {
+      setOtpModalOpen(true);
+    }
+  };
+
+  const handleVentureClick = () => {
+    const token = localStorage.getItem('nova_jwt_token');
+    if (token) {
+      const storedUser = localStorage.getItem('nova_user');
+      const user = storedUser ? JSON.parse(storedUser) : null;
+      setEnterpriseData({
+        org_name: user?.org_name || '',
+        contact_person: user?.username || '',
+        phone: '',
+        email: user?.email || '',
+        campus_count: '1',
+        expected_users: '100',
+        requirements: ''
+      });
+      setEnterpriseSent(false);
+      setEnterpriseFormOpen(true);
+    } else {
+      setOtpModalOpen(true);
+    }
+  };
+
+  const handleCreateOrderAndPay = async () => {
+    if (!selectedPlan) return;
+    setPaymentStatus('processing');
+    setPaymentError('');
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch('http://127.0.0.1:5000/api/subscription/create-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          plan_name: selectedPlan,
+          billing_period: pricingPeriod
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || 'Order creation failed');
+
+      // Process payment details simulation
+      setTimeout(async () => {
+        try {
+          const verifyRes = await fetch('http://127.0.0.1:5000/api/subscription/verify-payment', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              order_id: data.order_id,
+              payment_id: `pay_${Math.random().toString(36).substring(2, 10)}`
+            })
+          });
+          const verifyData = await verifyRes.json();
+          if (!verifyRes.ok) throw new Error(verifyData.msg || 'Payment verification failed');
+
+          setTransactionId(data.order_id);
+          setInvoiceNumber(verifyData.invoice_number);
+          setPaymentStatus('success');
+          
+          const storedUser = localStorage.getItem('nova_user');
+          if (storedUser) {
+            const user = JSON.parse(storedUser);
+            user.subscription_plan = selectedPlan;
+            localStorage.setItem('nova_user', JSON.stringify(user));
+          }
+        } catch (vErr: any) {
+          setPaymentError(vErr.message);
+          setPaymentStatus('failed');
+        }
+      }, 1500);
+
+    } catch (err: any) {
+      setPaymentError(err.message);
+      setPaymentStatus('failed');
+    }
+  };
+
+  const handleEnterpriseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch('http://127.0.0.1:5000/api/subscription/contact-enterprise', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(enterpriseData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || 'Submission failed');
+      setEnterpriseSent(true);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleQuickLogin = async (usr: string, pass: string) => {
     try {
       const res = await fetch('http://127.0.0.1:5000/api/auth/login', {
@@ -243,7 +376,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
         <div className="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
           {/* Logo brand */}
           <div className="flex items-center gap-3">
-            <img src="/logo.svg" className="w-10 h-10 rounded-full object-cover border border-white/20 shadow-lg shadow-blue-500/10" alt="Nova Logo" />
+            <img src="/logo-icon.svg?v=2" className="w-10 h-10 rounded-full object-cover border border-white/20 shadow-lg shadow-blue-500/10" alt="Nova Logo" />
             <div>
               <h1 className="text-sm font-extrabold m-0 tracking-wide text-white uppercase">NOVA LIBRARY</h1>
               <span className="text-[7px] text-yellow-400 font-bold tracking-wider block uppercase">Smart Library Management System</span>
@@ -759,7 +892,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
                   <li>Single Tenant Dashboard</li>
                 </ul>
               </div>
-              <button onClick={() => setOtpModalOpen(true)} className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold transition-all cursor-pointer">
+              <button onClick={() => handlePlanClick('Standard')} className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold transition-all cursor-pointer">
                 Subscribe Standard
               </button>
             </div>
@@ -780,7 +913,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
                   <li>Dedicated Support Node</li>
                 </ul>
               </div>
-              <button onClick={() => setOtpModalOpen(true)} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer">
+              <button onClick={() => handlePlanClick('Enterprise')} className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all cursor-pointer">
                 Deploy Enterprise Core
               </button>
             </div>
@@ -798,7 +931,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
                   <li>Database Migration Assistance</li>
                 </ul>
               </div>
-              <button onClick={() => setOtpModalOpen(true)} className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold transition-all cursor-pointer">
+              <button onClick={handleVentureClick} className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold transition-all cursor-pointer">
                 Contact Enterprise Sales
               </button>
             </div>
@@ -951,7 +1084,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
       <footer id="about" className="py-12 border-t border-white/5 bg-slate-950 px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-3">
-            <img src="/logo.svg" className="w-8 h-8 rounded-full object-cover border border-white/10" alt="Nova Logo" />
+            <img src="/logo-icon.svg?v=2" className="w-8 h-8 rounded-full object-cover border border-white/10" alt="Nova Logo" />
             <div>
               <span className="text-xs font-bold text-white block uppercase">NOVA LIBRARY</span>
               <span className="text-[8px] text-white/40 block">Smart Library Management System • Powered by Flask & React SPA Nodes</span>
@@ -1057,6 +1190,255 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
                 </>
               )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. PREMIUM PAYMENT MODAL */}
+      {paymentModalOpen && selectedPlan && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="glass-panel w-full max-w-md border-white/10 p-6 space-y-6 animate-fade-in relative bg-[#0b0f19]/90">
+            <button 
+              onClick={() => setPaymentModalOpen(false)}
+              className="absolute top-4 right-4 p-1 hover:bg-white/5 border border-white/5 text-white/50 hover:text-white rounded-lg transition-all cursor-pointer"
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
+
+            {paymentStatus === 'idle' && (
+              <>
+                <div className="text-center">
+                  <span className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-widest block">Checkout Portal</span>
+                  <h3 className="text-lg font-bold text-white mt-1">Upgrade Node Plan</h3>
+                </div>
+
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 space-y-3.5 text-xs text-slate-300">
+                  <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-slate-500 font-medium">Selected Plan:</span>
+                    <strong className="text-white uppercase font-bold">{selectedPlan} Node</strong>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-slate-500 font-medium">Pricing Cycle:</span>
+                    <span className="text-slate-200 capitalize font-medium">{pricingPeriod}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-slate-500 font-medium">Base Price:</span>
+                    <span className="text-slate-200 font-mono">₹{selectedPlan === 'Standard' ? (pricingPeriod === 'monthly' ? '1,500' : '14,400') : (pricingPeriod === 'monthly' ? '4,500' : '43,200')}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 pb-2">
+                    <span className="text-slate-500 font-medium">GST Rate (18%):</span>
+                    <span className="text-slate-200 font-mono">₹{selectedPlan === 'Standard' ? (pricingPeriod === 'monthly' ? '270' : '2,592') : (pricingPeriod === 'monthly' ? '810' : '7,776')}</span>
+                  </div>
+                  <div className="flex justify-between pt-1 text-sm font-bold">
+                    <span className="text-cyan-400">Total Price:</span>
+                    <strong className="text-cyan-400 font-mono">₹{selectedPlan === 'Standard' ? (pricingPeriod === 'monthly' ? '1,770' : '16,992') : (pricingPeriod === 'monthly' ? '5,310' : '50,976')}</strong>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-white/50 uppercase font-bold tracking-wider block">Choose Payment Method</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {['Razorpay (Secure)', 'Card Checkout', 'UPI AutoPay', 'Net Banking'].map((method, idx) => (
+                      <div key={idx} className="flex items-center gap-2 p-2.5 rounded-xl bg-white/5 border border-white/5 hover:border-cyan-500/30 transition-all cursor-pointer">
+                        <input type="radio" name="payment_method" defaultChecked={idx === 0} className="accent-cyan-400" />
+                        <span className="text-white/80 font-medium">{method}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCreateOrderAndPay}
+                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-bold transition-all shadow-lg cursor-pointer border-none text-xs"
+                >
+                  Proceed to Payment
+                </button>
+              </>
+            )}
+
+            {paymentStatus === 'processing' && (
+              <div className="text-center py-8 space-y-4">
+                <div className="w-12 h-12 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto animate-pulse"></div>
+                <div>
+                  <h4 className="text-white font-bold text-sm">Processing Transaction</h4>
+                  <p className="text-slate-400 text-[10px] mt-1">Connecting payment gateway security nodes...</p>
+                </div>
+              </div>
+            )}
+
+            {paymentStatus === 'success' && (
+              <div className="text-center py-6 space-y-6">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto animate-pulse">
+                  <CheckCircle className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-white font-extrabold text-base">Payment Verified Successfully</h4>
+                  <p className="text-slate-400 text-[10px]">Your {selectedPlan} subscription is now fully active.</p>
+                </div>
+
+                <div className="bg-white/5 border border-white/5 rounded-2xl p-4 text-[10px] space-y-2 text-left font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Transaction ID:</span>
+                    <span className="text-slate-300">{transactionId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Invoice Ref:</span>
+                    <span className="text-slate-300">{invoiceNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Validity Days:</span>
+                    <span className="text-slate-300">{pricingPeriod === 'monthly' ? '30 Days' : '365 Days'}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      setPaymentModalOpen(false);
+                      onEnterPortal();
+                    }}
+                    className="flex-grow py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] cursor-pointer"
+                  >
+                    Go to Dashboard
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {paymentStatus === 'failed' && (
+              <div className="text-center py-6 space-y-5">
+                <div className="w-14 h-14 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto">
+                  <XIcon className="w-8 h-8" />
+                </div>
+                <div className="space-y-1.5">
+                  <h4 className="text-white font-bold text-sm">Transaction Failed</h4>
+                  <p className="text-rose-300 text-[10px] font-semibold">{paymentError}</p>
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setPaymentStatus('idle')}
+                    className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl text-xs cursor-pointer font-bold"
+                  >
+                    Try Again
+                  </button>
+                  <button 
+                    onClick={() => setPaymentModalOpen(false)}
+                    className="flex-1 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs cursor-pointer font-bold"
+                  >
+                    Cancel Checkout
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 3. VENTURE ENTERPRISE CONTACT MODAL */}
+      {enterpriseFormOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 overflow-y-auto">
+          <div className="glass-panel w-full max-w-md border-white/10 p-6 space-y-5 animate-fade-in relative bg-[#0b0f19]/90">
+            <button 
+              onClick={() => setEnterpriseFormOpen(false)}
+              className="absolute top-4 right-4 p-1 hover:bg-white/5 border border-white/5 text-white/50 hover:text-white rounded-lg transition-all cursor-pointer"
+            >
+              <XIcon className="w-4 h-4" />
+            </button>
+
+            {!enterpriseSent ? (
+              <>
+                <div className="text-center">
+                  <span className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-widest block">Custom Deployment</span>
+                  <h3 className="text-lg font-bold text-white mt-1">Enterprise Registration</h3>
+                </div>
+
+                <form onSubmit={handleEnterpriseSubmit} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="text-white/60 block mb-1 font-semibold">Contact Person</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={enterpriseData.contact_person}
+                      onChange={e => setEnterpriseData({...enterpriseData, contact_person: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-white/60 block mb-1 font-semibold">Contact Email</label>
+                    <input 
+                      type="email" 
+                      required
+                      value={enterpriseData.email}
+                      onChange={e => setEnterpriseData({...enterpriseData, email: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-white/60 block mb-1 font-semibold">Phone Number</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={enterpriseData.phone}
+                        onChange={e => setEnterpriseData({...enterpriseData, phone: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-white/60 block mb-1 font-semibold">Campus Count</label>
+                      <input 
+                        type="number" 
+                        required
+                        value={enterpriseData.campus_count}
+                        onChange={e => setEnterpriseData({...enterpriseData, campus_count: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-white/60 block mb-1 font-semibold">Expected Concurrent Users</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={enterpriseData.expected_users}
+                      onChange={e => setEnterpriseData({...enterpriseData, expected_users: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-white/60 block mb-1 font-semibold">Specific Requirements</label>
+                    <textarea 
+                      rows={3}
+                      value={enterpriseData.requirements}
+                      onChange={e => setEnterpriseData({...enterpriseData, requirements: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400 resize-none"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-cyan-500 hover:to-blue-600 text-white font-bold transition-all shadow-lg cursor-pointer border-none text-xs"
+                  >
+                    Submit Custom Request
+                  </button>
+                </form>
+              </>
+            ) : (
+              <div className="text-center py-6 space-y-5">
+                <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                  <CheckCircle className="w-8 h-8" />
+                </div>
+                <div className="space-y-1.5">
+                  <h4 className="text-white font-bold text-sm">Request Logged</h4>
+                  <p className="text-slate-400 text-[10px] leading-relaxed">Our Enterprise relations desk has queued your deployment specifications. A solution architect will contact you on your registered node shortly.</p>
+                </div>
+                <button 
+                  onClick={() => setEnterpriseFormOpen(false)}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs cursor-pointer font-bold"
+                >
+                  Close Panel
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

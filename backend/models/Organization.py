@@ -9,6 +9,8 @@ class Organization(db.Model):
     subdomain = db.Column(db.String(50), unique=True, nullable=False)
     logo_url = db.Column(db.String(255), nullable=True)
     fine_rate = db.Column(db.Float, default=5.0, nullable=False) # Fine per day
+    max_fine_limit = db.Column(db.Float, default=500.0, nullable=False) # Maximum fine limit per ticket
+    status = db.Column(db.String(20), default='active', nullable=False) # 'active' / 'inactive' / 'suspended'
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -25,5 +27,7 @@ class Organization(db.Model):
             'subdomain': self.subdomain,
             'logo_url': self.logo_url,
             'fine_rate': self.fine_rate,
+            'max_fine_limit': self.max_fine_limit,
+            'status': self.status,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
         }
