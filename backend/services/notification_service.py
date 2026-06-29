@@ -227,7 +227,7 @@ class NotificationService:
                 pass
             print(f"--- OUTBOX LOGGED --- To: {to_phone} | SMS: {message}", flush=True)
 
-        mock_mode = os.environ.get('MOCK_OTP_DELIVERY') == 'true' or to_phone in ('+15555555555', '+919876543210', '+19876543210')
+        mock_mode = os.environ.get('MOCK_OTP_DELIVERY') == 'true'
         if mock_mode:
             print("SMS provider Connected", flush=True)
             print(f"Recipient Phone: {to_phone}", flush=True)
@@ -265,7 +265,7 @@ class NotificationService:
             
             with urllib.request.urlopen(req) as res:
                 res_body = res.read().decode('utf-8')
-                print(f"Twilio API Response: {res_body}", flush=True)
+                print(f"SMS Provider Response: {res_body}", flush=True)
             
             print("SMS Sent Successfully", flush=True)
             return True, ""

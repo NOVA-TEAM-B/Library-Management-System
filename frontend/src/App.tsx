@@ -379,7 +379,7 @@ export default function App() {
               {user?.org_logo ? (
                 <img src={user.org_logo} className="w-10 h-10 object-contain rounded-full bg-white/5 border border-white/10 p-0.5" alt="Org Logo" />
               ) : (
-                <img src="/logo-icon.svg?v=2" className="w-10 h-10 object-cover" alt="Nova Logo" />
+                <img src="/logo.png" className="w-10 h-10 object-cover" alt="Nova Logo" />
               )}
               {!collapsed && (
                 <div className="animate-fade-in">

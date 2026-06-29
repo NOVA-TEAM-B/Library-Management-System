@@ -376,7 +376,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
         <div className="max-w-7xl mx-auto px-6 h-20 flex justify-between items-center">
           {/* Logo brand */}
           <div className="flex items-center gap-3">
-            <img src="/logo-icon.svg?v=2" className="w-10 h-10 rounded-full object-cover border border-white/20 shadow-lg shadow-blue-500/10" alt="Nova Logo" />
+            <img src="/logo.png" className="w-10 h-10 rounded-full object-cover border border-white/20 shadow-lg shadow-blue-500/10" alt="Nova Logo" />
             <div>
               <h1 className="text-sm font-extrabold m-0 tracking-wide text-white uppercase">NOVA LIBRARY</h1>
               <span className="text-[7px] text-yellow-400 font-bold tracking-wider block uppercase">Smart Library Management System</span>
@@ -1084,7 +1084,7 @@ export default function Home({ onEnterPortal, onLoginSuccess }: HomeProps) {
       <footer id="about" className="py-12 border-t border-white/5 bg-slate-950 px-6">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-3">
-            <img src="/logo-icon.svg?v=2" className="w-8 h-8 rounded-full object-cover border border-white/10" alt="Nova Logo" />
+            <img src="/logo.png" className="w-8 h-8 rounded-full object-cover border border-white/10" alt="Nova Logo" />
             <div>
               <span className="text-xs font-bold text-white block uppercase">NOVA LIBRARY</span>
               <span className="text-[8px] text-white/40 block">Smart Library Management System • Powered by Flask & React SPA Nodes</span>

@@ -9,5 +9,6 @@ from backend.models.Subscription import Subscription, Transaction, EnterpriseReq
 from backend.models.Notification import Notification
 from backend.models.BookRequest import BookRequest
 from backend.models.CalendarEvent import CalendarEvent
+from backend.models.RegistrationOtp import RegistrationOtp
 
-__all__ = ['User', 'Book', 'Issue', 'Fine', 'Reservation', 'Organization', 'AuditLog', 'Subscription', 'Transaction', 'EnterpriseRequest', 'Notification', 'BookRequest', 'CalendarEvent']
+__all__ = ['User', 'Book', 'Issue', 'Fine', 'Reservation', 'Organization', 'AuditLog', 'Subscription', 'Transaction', 'EnterpriseRequest', 'Notification', 'BookRequest', 'CalendarEvent', 'RegistrationOtp']

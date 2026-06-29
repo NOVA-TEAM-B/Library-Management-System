@@ -315,7 +315,7 @@ export default function Profile({ user, onProfileUpdate }: ProfileProps) {
                         {user?.org_logo ? (
                           <img src={user.org_logo} className="w-6 h-6 rounded-full object-contain bg-white/5 border border-white/10 p-0.5" alt="Org Logo" />
                         ) : (
-                          <img src="/logo-icon.svg?v=2" className="w-6 h-6 object-contain" alt="Logo" />
+                          <img src="/logo.png" className="w-6 h-6 object-contain" alt="Logo" />
                         )}
                         <div>
                           <h5 className="font-extrabold text-[10px] text-white uppercase tracking-wider leading-none">{user?.org_name || 'NOVA LIBRARY'}</h5>

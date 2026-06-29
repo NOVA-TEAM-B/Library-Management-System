@@ -23,7 +23,7 @@ export default function Settings() {
       const parsed = JSON.parse(storedUser);
       setName(parsed.org_name || 'MIT Tech Institute');
       setFineRate(parsed.fine_rate || '5.0');
-      setLogoUrl(parsed.org_logo || '/logo.svg');
+      setLogoUrl(parsed.org_logo || '/logo.png');
     }
   }, []);
 

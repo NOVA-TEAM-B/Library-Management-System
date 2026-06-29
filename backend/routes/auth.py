@@ -7,6 +7,7 @@ from backend.models.Organization import Organization
 from backend.utils.audit_helper import log_audit
 from werkzeug.security import generate_password_hash, check_password_hash
 from backend.services.notification_service import NotificationService
+from backend.models.RegistrationOtp import RegistrationOtp
 from datetime import datetime, timedelta
 
 auth_bp = Blueprint('auth', __name__)
@@ -43,36 +44,42 @@ def register():
     if not data or not data.get('username') or not data.get('email') or not data.get('password'):
         return jsonify({"msg": "Missing required fields"}), 400
         
-    if User.query.filter_by(username=data['username']).first():
-        return jsonify({"msg": "Username already exists"}), 400
+    username = data['username'].strip()
+    email = data['email'].strip().lower()
+    phone = data.get('phone', '').strip()
+
+    # Normalization of phone
+    phone_clean = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '') if phone else ""
+    if phone_clean and not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean
+
+    # Enforce format validation
+    if phone_clean and not validate_phone_format(phone_clean):
+        return jsonify({"msg": "Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)"}), 400
+
+    # Enforce uniqueness checks
+    if User.query.filter(User.username.ilike(username)).first():
+        return jsonify({"msg": "Username already exists."}), 400
         
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({"msg": "Email already exists"}), 400
+    if User.query.filter(User.email.ilike(email)).first():
+        return jsonify({"msg": "Email already registered."}), 400
+
+    if phone_clean and User.query.filter_by(phone=phone_clean).first():
+        return jsonify({"msg": "Phone already registered."}), 400
         
-    # Verify registration OTP
-    otp_code = data.get('otp_code')
-    if not otp_code:
-        return jsonify({"msg": "Verification OTP code is required for registration"}), 400
+    # Verify registration OTP in database
+    otp_entry = RegistrationOtp.query.filter(
+        (RegistrationOtp.email.ilike(email)) | (RegistrationOtp.phone == phone_clean)
+    ).filter_by(purpose='registration', verified=True).filter(
+        RegistrationOtp.expires_at > datetime.utcnow()
+    ).first()
+
+    if not otp_entry:
+        return jsonify({"msg": "Please verify your OTP first."}), 400
         
-    reg_email = data['email'].strip()
-    reg_record = registration_otps.get(reg_email)
-    if not reg_record:
-        reg_record = registration_otps.get(data.get('phone', '').strip())
-        
-    if not reg_record:
-        return jsonify({"msg": "No active registration verification found. Please request a new OTP"}), 400
-        
-    if datetime.utcnow() > reg_record['expires_at']:
-        registration_otps.pop(reg_email, None)
-        return jsonify({"msg": "Registration OTP has expired. Please request a new code"}), 400
-        
-    if not check_password_hash(reg_record['hash'], otp_code.strip()):
-        return jsonify({"msg": "Invalid verification code"}), 400
-        
-    # Valid and verified! Clear registry entry to prevent reuse
-    registration_otps.pop(reg_email, None)
-    if data.get('phone'):
-        registration_otps.pop(data['phone'].strip(), None)
+    # Valid and verified! Delete entry to prevent reuse (OTP rules: "OTP deleted after successful verification")
+    db.session.delete(otp_entry)
+    db.session.commit()
 
     # Generate unique membership ID
     last_user = User.query.filter(User.membership_id.like('MEM-%')).order_by(User.id.desc()).first()
@@ -100,7 +107,7 @@ def register():
         org_id=data.get('org_id') or default_org_id,
         membership_id=new_mem_id,
         department=data.get('department', 'General'),
-        phone=data.get('phone', ''),
+        phone=phone_clean,
         status='active',
         reading_score=reading_score,
         achievement_level=achievement_level,
@@ -168,7 +175,7 @@ def login():
         "user": user.to_dict(),
         "organization": {
             "name": user.organization.name if user.organization else "Nova System Console",
-            "logo_url": user.organization.logo_url if user.organization else "/logo.svg",
+            "logo_url": user.organization.logo_url if user.organization else "/logo.png",
             "fine_rate": user.organization.fine_rate if user.organization else 5.0
         }
     })
@@ -244,6 +251,108 @@ def update_profile():
     db.session.commit()
     return jsonify({"msg": "Profile updated successfully", "user": user.to_dict()}), 200
 
+def dispatch_dual_channel_otp(user, otp_code, purpose="login"):
+    has_email = bool(user.email and user.email.strip())
+    has_phone = bool(user.phone and user.phone.strip())
+    
+    email_success = False
+    email_error = ""
+    sms_success = False
+    sms_error = ""
+    
+    # 1. Dispatch Email
+    if has_email:
+        smtp_host = os.environ.get('SMTP_HOST') or os.environ.get('MAIL_SERVER')
+        smtp_port = os.environ.get('SMTP_PORT') or os.environ.get('MAIL_PORT')
+        smtp_user = os.environ.get('SMTP_USER') or os.environ.get('MAIL_USERNAME')
+        smtp_pass = os.environ.get('SMTP_PASS') or os.environ.get('MAIL_PASSWORD')
+        email_from = os.environ.get('EMAIL_FROM') or os.environ.get('MAIL_DEFAULT_SENDER')
+        
+        if not (smtp_host and smtp_port and smtp_user and smtp_pass and email_from):
+            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
+                email_success = True
+            else:
+                email_error = "SMTP credentials are not configured in .env"
+        else:
+            if purpose == "password_reset":
+                subject = "Nova Library - Password Reset OTP"
+                body = f"Hello {user.username},\n\nYour password reset OTP is {otp_code}.\n\nThis code expires in 5 minutes.\n\nNova System Security Node"
+            else:
+                subject = "Nova Library - Secure Access OTP"
+                body = f"Hello {user.username},\n\nYour secure access OTP code is {otp_code}.\n\nThis code expires in 5 minutes.\n\nNova System Security Node"
+            
+            email_success, email_error = NotificationService.send_email(user.email, subject, body, otp_code=otp_code)
+
+    # 2. Dispatch SMS
+    if has_phone:
+        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+        from_number = os.environ.get('TWILIO_FROM_NUMBER')
+        
+        # Normalize phone number to E.164 format
+        target_phone = user.phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+        if not target_phone.startswith('+'):
+            target_phone = '+' + target_phone
+            
+        print("--------------------------------------------------", flush=True)
+        print("SMS DISPATCH LOG", flush=True)
+        print(f"User ID       : {user.id}", flush=True)
+        print(f"Username      : {user.username}", flush=True)
+        print(f"Email         : {user.email}", flush=True)
+        print(f"Phone Retrieved: {user.phone}", flush=True)
+        print(f"Phone Used    : {target_phone}", flush=True)
+        print("OTP Generated : ******", flush=True)
+        
+        if not (account_sid and auth_token and from_number):
+            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
+                sms_success = True
+                print("SMS Provider Response: MOCK MODE ACTIVE", flush=True)
+                print("SMS Status    : SUCCESS", flush=True)
+                print("Delivery Result: Mocked delivery logged", flush=True)
+            else:
+                sms_error = "Twilio credentials are not configured in .env"
+                print("SMS Provider Response: CREDENTIALS MISSING", flush=True)
+                print("SMS Status    : FAILED", flush=True)
+                print(f"Delivery Result: {sms_error}", flush=True)
+        else:
+            if purpose == "password_reset":
+                message = f"Nova Library: Your password reset OTP is {otp_code}. Valid for 5 minutes."
+            else:
+                message = f"Nova Library: Your verification OTP is {otp_code}. Valid for 5 minutes."
+            
+            sms_success, sms_error = NotificationService.send_sms(target_phone, message, otp_code=otp_code)
+            print(f"SMS Status    : {'SUCCESS' if sms_success else 'FAILED'}", flush=True)
+            print(f"Delivery Result: {'Success' if sms_success else sms_error}", flush=True)
+        print("--------------------------------------------------", flush=True)
+
+    # 3. Determine result status and messages
+    if has_email and has_phone:
+        if email_success and sms_success:
+            return True, "OTP sent successfully to your registered email and phone.", 200
+        elif email_success and not sms_success:
+            return True, "OTP sent to your registered email. SMS delivery unavailable.", 200
+        elif not email_success and sms_success:
+            return True, "OTP sent to your registered phone. Email delivery unavailable.", 200
+        else:
+            err_msg = f"Failed to deliver OTP. Email: {email_error or 'Unknown error'}. SMS: {sms_error or 'Unknown error'}."
+            return False, err_msg, 500
+            
+    elif has_email:
+        if email_success:
+            return True, "OTP sent to your registered email.", 200
+        else:
+            return False, f"Failed to deliver OTP to email. Error: {email_error or 'Unknown error'}.", 500
+            
+    elif has_phone:
+        if sms_success:
+            return True, "OTP sent to your registered phone.", 200
+        else:
+            return False, f"Failed to deliver OTP to phone. Error: {sms_error or 'Unknown error'}.", 500
+            
+    else:
+        return False, "No registered contact channel found.", 400
+
+
 @auth_bp.route('/generate-otp', methods=['POST'])
 def generate_otp():
     print("==============================", flush=True)
@@ -260,55 +369,42 @@ def generate_otp():
         
     email_or_phone = data['email_or_phone'].strip()
     
-    # Normalize value: trim whitespace and lowercase email
+    # Normalize input
     is_phone = email_or_phone.startswith('+') or email_or_phone.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').isdigit()
     is_email = not is_phone
     if is_email:
         email_or_phone = email_or_phone.lower()
         print(f"Normalized email_or_phone: {email_or_phone} (Type: Email)", flush=True)
         if not validate_email_format(email_or_phone):
-            print("Returning HTTP Response: 400 (Invalid Email Format)", flush=True)
-            print("==============================", flush=True)
             return jsonify({"msg": "Invalid email address format"}), 400
     else:
-        # Normalize phone: remove spaces/hyphens and prepend '+' if missing
         email_or_phone = email_or_phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
         if not email_or_phone.startswith('+'):
             email_or_phone = '+' + email_or_phone
         print(f"Normalized email_or_phone: {email_or_phone} (Type: Phone)", flush=True)
         if not validate_phone_format(email_or_phone):
-            print("Returning HTTP Response: 400 (Invalid Phone Format)", flush=True)
-            print("==============================", flush=True)
             return jsonify({"msg": "Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)"}), 400
 
     # Query user by email or phone
     user = User.query.filter((User.email == email_or_phone) | (User.phone == email_or_phone)).first()
     print(f"User Found: {user.username if user else 'None'}", flush=True)
     if not user:
-        print("Returning HTTP Response: 404 (User Not Found)", flush=True)
-        print("==============================", flush=True)
         return jsonify({"msg": "No account associated with this email or phone"}), 404
         
     print(f"User Status: {user.status}", flush=True)
     if user.status != 'active':
-        print("Returning HTTP Response: 403 (User Inactive)", flush=True)
-        print("==============================", flush=True)
         return jsonify({"msg": "Account is inactive or pending approval"}), 403
 
     # Hourly rate limit check (max 5 requests per hour)
     if not check_otp_rate_limit(email_or_phone):
-        print("Returning HTTP Response: 429 (Hourly limit exceeded)", flush=True)
-        print("==============================", flush=True)
         return jsonify({"msg": "Maximum of 5 OTP requests per hour exceeded"}), 429
 
-    # Check rate limit: 30-second throttle
+    # Check rate limit: 60-second throttle
     now = datetime.utcnow()
     if user.otp_last_requested_at:
         seconds_since_last = (now - user.otp_last_requested_at).total_seconds()
-        if seconds_since_last < 30:
-            print("Returning HTTP Response: 429 (Throttle limit active)", flush=True)
-            print("==============================", flush=True)
-            return jsonify({"msg": f"Please wait {int(30 - seconds_since_last)} seconds before requesting a new code"}), 429
+        if seconds_since_last < 60:
+            return jsonify({"msg": f"Please wait {int(60 - seconds_since_last)} seconds before requesting a new code"}), 429
 
     # Generate 6-digit code using secure secrets generator
     import secrets
@@ -317,101 +413,38 @@ def generate_otp():
 
     # Assign user attributes in-memory (do not commit yet)
     user.otp_hash = generate_password_hash(otp_code)
-    user.otp_expires_at = now + timedelta(minutes=2)
+    user.otp_expires_at = now + timedelta(minutes=5) # 5 minutes expiration
     user.otp_last_requested_at = now
     user.otp_resend_attempts += 1
     user.otp_verified = False  # Mark unverified/not used initially
     
     # Store in memory cache for test verification runner in the same process
     otp_cache[email_or_phone] = otp_code
-    
-    # Dispatch OTP via SMS or Email
-    success = False
-    error_msg = ""
-    if is_email:
-        # Check SMTP configuration
-        smtp_host = os.environ.get('SMTP_HOST') or os.environ.get('MAIL_SERVER')
-        smtp_port = os.environ.get('SMTP_PORT') or os.environ.get('MAIL_PORT')
-        smtp_user = os.environ.get('SMTP_USER') or os.environ.get('MAIL_USERNAME')
-        smtp_pass = os.environ.get('SMTP_PASS') or os.environ.get('MAIL_PASSWORD')
-        email_from = os.environ.get('EMAIL_FROM') or os.environ.get('MAIL_DEFAULT_SENDER')
-        if not (smtp_host and smtp_port and smtp_user and smtp_pass and email_from):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                print("Returning HTTP Response: 500 (Missing SMTP credentials)", flush=True)
-                print("==============================", flush=True)
-                return jsonify({
-                    "success": False,
-                    "msg": "Configuration Error: SMTP credentials are not configured in .env",
-                    "message": "Configuration Error: SMTP credentials are not configured in .env"
-                }), 500
-        
-        subject = "Nova Library - Secure Access OTP"
-        body = f"Hello {user.username},\n\nYour secure access OTP code is {otp_code}.\n\nThis code expires in 2 minutes.\n\nNova System Security Node"
-        print("Calling NotificationService.send_email()", flush=True)
-        success, error_msg = NotificationService.send_email(email_or_phone, subject, body, otp_code=otp_code)
-    else:
-        # Check Twilio configuration
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        from_number = os.environ.get('TWILIO_FROM_NUMBER')
-        if not (account_sid and auth_token and from_number):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                print("Returning HTTP Response: 500 (Missing Twilio credentials)", flush=True)
-                print("==============================", flush=True)
-                return jsonify({
-                    "success": False,
-                    "msg": "Configuration Error: Twilio credentials are not configured in .env",
-                    "message": "Configuration Error: Twilio credentials are not configured in .env"
-                }), 500
-                
-        message = f"Nova Library: Your verification OTP is {otp_code}. Valid for 2 minutes."
-        print("Calling NotificationService.send_sms()", flush=True)
-        success, error_msg = NotificationService.send_sms(email_or_phone, message, otp_code=otp_code)
-        
-    print(f"Returned Success Value: {success}", flush=True)
-    print(f"Returned Error Message: {error_msg}", flush=True)
+    if user.email:
+        otp_cache[user.email] = otp_code
+    if user.phone:
+        otp_cache[user.phone] = otp_code
+
+    # Dispatch OTP via both channels independently
+    success, msg, status_code = dispatch_dual_channel_otp(user, otp_code, purpose="login")
     
     if not success:
-        # Rollback changes to user object on failure (i.e. do not commit to DB)
         db.session.rollback()
-        print(f"Returning HTTP Response: 500 ({error_msg})", flush=True)
-        print("==============================", flush=True)
-        return jsonify({
-            "success": False,
-            "msg": error_msg or "Failed to deliver OTP",
-            "message": error_msg or "Failed to deliver OTP"
-        }), 500
+        return jsonify({"success": False, "msg": msg, "message": msg}), status_code
         
     # Commit changes on success
     try:
-        print("Database Commit Started", flush=True)
         db.session.commit()
-        print("Database Commit Success", flush=True)
     except Exception as e:
         db.session.rollback()
-        import traceback
-        traceback.print_exc()
-        print("Returning HTTP Response: 500 (Database Commit Failed)", flush=True)
-        print("==============================", flush=True)
-        return jsonify({
-            "success": False,
-            "message": "Failed to save OTP.",
-            "msg": "Failed to save OTP."
-        }), 500
+        return jsonify({"success": False, "msg": "Failed to save OTP.", "message": "Failed to save OTP."}), 500
         
     # Audit log
-    log_audit("OTP Requested", details=f"OTP generated and sent to {email_or_phone} (Method: {'Email' if is_email else 'SMS'}).", user_id=user.id)
-    
-    print("Returning HTTP Response: 200 (Success)", flush=True)
-    print("==============================", flush=True)
+    log_audit("OTP Requested", details=f"OTP generated and sent: {msg}", user_id=user.id)
     return jsonify({
         "success": True,
-        "msg": "OTP email delivered." if is_email else "OTP SMS delivered.",
-        "message": "OTP email delivered." if is_email else "OTP SMS delivered."
+        "msg": msg,
+        "message": msg
     }), 200
 
 @auth_bp.route('/verify-otp', methods=['POST'])
@@ -472,7 +505,7 @@ def verify_otp():
         "user": user.to_dict(),
         "organization": {
             "name": user.organization.name if user.organization else "Nova System Console",
-            "logo_url": user.organization.logo_url if user.organization else "/logo.svg",
+            "logo_url": user.organization.logo_url if user.organization else "/logo.png",
             "fine_rate": user.organization.fine_rate if user.organization else 5.0
         }
     })
@@ -544,97 +577,159 @@ def upload_avatar():
 def get_organization_branding():
     subdomain = request.args.get('subdomain')
     if not subdomain or subdomain in ['localhost', '127.0.0.1']:
-        return jsonify({"name": "Nova Library", "logo_url": "/logo.svg"}), 200
+        return jsonify({"name": "Nova Library", "logo_url": "/logo.png"}), 200
         
     org = Organization.query.filter_by(subdomain=subdomain).first()
     if not org:
-        return jsonify({"name": "Nova Library", "logo_url": "/logo.svg"}), 200
+        return jsonify({"name": "Nova Library", "logo_url": "/logo.png"}), 200
         
     return jsonify({
         "name": org.name,
-        "logo_url": org.logo_url or "/logo.svg"
+        "logo_url": org.logo_url or "/logo.png"
     }), 200
 
-@auth_bp.route('/register-otp', methods=['POST'])
-def register_otp():
+@auth_bp.route('/send-registration-otp', methods=['POST'])
+def send_registration_otp():
+    # Automatically remove expired OTPs
+    RegistrationOtp.query.filter(RegistrationOtp.expires_at < datetime.utcnow()).delete()
+    db.session.commit()
+
     data = request.get_json()
-    if not data or not data.get('email_or_phone'):
-        return jsonify({"msg": "Email or phone number is required"}), 400
+    if not data or not data.get('username') or not data.get('email') or not data.get('phone'):
+        return jsonify({"msg": "Username, email, and phone number are required"}), 400
         
-    email_or_phone = data['email_or_phone'].strip()
-    
-    # Check if identifier already registered
-    existing_user = User.query.filter((User.email == email_or_phone) | (User.phone == email_or_phone)).first()
-    if existing_user:
-        return jsonify({"msg": "An account with this email or phone already exists"}), 400
-        
-    # Validate format
-    is_phone = email_or_phone.startswith('+') or email_or_phone.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').isdigit()
-    is_email = not is_phone
-    if is_email:
-        if not validate_email_format(email_or_phone):
-            return jsonify({"msg": "Invalid email address format"}), 400
-    else:
-        email_or_phone = email_or_phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        if not email_or_phone.startswith('+'):
-            email_or_phone = '+' + email_or_phone
-        if not validate_phone_format(email_or_phone):
-            return jsonify({"msg": "Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)"}), 400
-            
-    # Check rate limit
-    if not check_otp_rate_limit(email_or_phone):
+    username = data['username'].strip()
+    email = data['email'].strip().lower()
+    phone = data['phone'].strip()
+    password = data.get('password', '').strip()
+
+    # Backend Validation:
+    # 1. Email format
+    if not validate_email_format(email):
+        return jsonify({"msg": "Invalid email address format"}), 400
+
+    # 2. Phone format
+    phone_clean = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    if not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean
+    if not validate_phone_format(phone_clean):
+        return jsonify({"msg": "Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)"}), 400
+
+    # 3. Password policy
+    if password and len(password) < 8:
+        return jsonify({"msg": "Password must be at least 8 characters long"}), 400
+
+    # 4. Uniqueness
+    if User.query.filter(User.username.ilike(username)).first():
+        return jsonify({"msg": "Username already exists."}), 400
+
+    if User.query.filter(User.email.ilike(email)).first():
+        return jsonify({"msg": "Email already exists."}), 400
+
+    if User.query.filter_by(phone=phone_clean).first():
+        return jsonify({"msg": "Phone already exists."}), 400
+
+    # Rate Limit: max 5 requests per hour per identifier
+    if not check_otp_rate_limit(email) or not check_otp_rate_limit(phone_clean):
         return jsonify({"msg": "Maximum of 5 OTP requests per hour exceeded"}), 429
-        
-    # Generate 6-digit code
+
+    # Generate secure random 6-digit OTP code
     import secrets
     otp_code = f"{secrets.SystemRandom().randint(100000, 999999)}"
 
-    # Dispatch OTP
-    success = False
-    error_msg = ""
-    if is_email:
-        smtp_host = os.environ.get('SMTP_HOST') or os.environ.get('MAIL_SERVER')
-        smtp_port = os.environ.get('SMTP_PORT') or os.environ.get('MAIL_PORT')
-        smtp_user = os.environ.get('SMTP_USER') or os.environ.get('MAIL_USERNAME')
-        smtp_pass = os.environ.get('SMTP_PASS') or os.environ.get('MAIL_PASSWORD')
-        email_from = os.environ.get('EMAIL_FROM') or os.environ.get('MAIL_DEFAULT_SENDER')
-        if not (smtp_host and smtp_port and smtp_user and smtp_pass and email_from):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                return jsonify({"msg": "Configuration Error: SMTP credentials are not configured in .env"}), 500
-                
-        subject = "Nova Library - Registration Verification OTP"
-        body = f"Hello,\n\nYour registration verification OTP is {otp_code}.\n\nThis code expires in 2 minutes.\n\nNova System Security Node"
-        success, error_msg = NotificationService.send_email(email_or_phone, subject, body, otp_code=otp_code)
-    else:
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        from_number = os.environ.get('TWILIO_FROM_NUMBER')
-        if not (account_sid and auth_token and from_number):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                return jsonify({"msg": "Configuration Error: Twilio credentials are not configured in .env"}), 500
-                
-        message = f"Nova Library: Your registration verification OTP is {otp_code}. Valid for 2 minutes."
-        success, error_msg = NotificationService.send_sms(email_or_phone, message, otp_code=otp_code)
-        
-    if not success:
-        return jsonify({"msg": error_msg or "Failed to deliver OTP"}), 500
-        
-    # Store in memory cache for test verification runner in the same process
-    otp_cache[email_or_phone] = otp_code
-    
-    # Hash OTP and store in registration cache
+    # Invalidate/delete any previous registration OTPs for this email or phone
+    RegistrationOtp.query.filter((RegistrationOtp.email.ilike(email)) | (RegistrationOtp.phone == phone_clean)).delete()
+    db.session.commit()
+
+    # Hash OTP and store in DB
     now = datetime.utcnow()
-    registration_otps[email_or_phone] = {
-        'hash': generate_password_hash(otp_code),
-        'expires_at': now + timedelta(minutes=2)
-    }
-        
-    log_audit("Registration OTP Requested", details=f"Registration OTP sent to {email_or_phone}")
-    return jsonify({"success": True, "msg": "Verification OTP sent successfully"}), 200
+    hashed_otp = generate_password_hash(otp_code)
+    otp_entry = RegistrationOtp(
+        email=email,
+        phone=phone_clean,
+        otp=hashed_otp,
+        purpose='registration',
+        expires_at=now + timedelta(minutes=5),
+        verified=False,
+        attempts=0
+    )
+    db.session.add(otp_entry)
+    db.session.commit()
+
+    # Maintain the in-memory cache for backwards compatibility with tests
+    otp_cache[email] = otp_code
+    otp_cache[phone_clean] = otp_code
+
+    # Dispatch OTP via SMTP (Email) and Twilio (SMS)
+    subject = "Nova Library Verification Code"
+    body = f"Hello,\n\nYour verification code is\n\n{otp_code}\n\nThis OTP expires in 5 minutes.\n\nDo not share this code.\n\nNova Library Management System"
+
+    email_success, email_err = NotificationService.send_email(email, subject, body, otp_code=otp_code)
+    if not email_success:
+        db.session.delete(otp_entry)
+        db.session.commit()
+        return jsonify({"msg": email_err or "Failed to deliver email OTP"}), 500
+
+    # SMS dispatch (if Twilio configured, send SMS. If not configured, gracefully skip)
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    from_number = os.environ.get('TWILIO_FROM_NUMBER')
+    
+    if account_sid and auth_token and from_number:
+        sms_msg = f"Nova Library: Your verification OTP is {otp_code}. Valid for 5 minutes."
+        NotificationService.send_sms(phone_clean, sms_msg, otp_code=otp_code)
+    else:
+        print("Twilio SMS is not configured in .env. Skipping SMS dispatch gracefully.", flush=True)
+
+    log_audit("Registration OTP Requested", details=f"Registration OTP sent to {email} and {phone_clean}")
+    return jsonify({
+        "success": True,
+        "message": "OTP sent successfully."
+    }), 200
+
+@auth_bp.route('/verify-registration-otp', methods=['POST'])
+def verify_registration_otp():
+    # Automatically remove expired OTPs
+    RegistrationOtp.query.filter(RegistrationOtp.expires_at < datetime.utcnow()).delete()
+    db.session.commit()
+
+    data = request.get_json()
+    if not data or not data.get('email') or not data.get('otp'):
+        return jsonify({"msg": "Email and OTP code are required"}), 400
+
+    email = data['email'].strip().lower()
+    otp_code = data['otp'].strip()
+
+    # Query active OTP entry
+    otp_entry = RegistrationOtp.query.filter(
+        (RegistrationOtp.email.ilike(email)) | (RegistrationOtp.phone == email)
+    ).filter_by(purpose='registration', verified=False).order_by(RegistrationOtp.id.desc()).first()
+
+    if not otp_entry:
+        return jsonify({"msg": "Please request a new OTP."}), 400
+
+    if datetime.utcnow() > otp_entry.expires_at:
+        return jsonify({"msg": "OTP expired."}), 400
+
+    if otp_entry.attempts >= 5:
+        return jsonify({"msg": "Too many attempts."}), 400
+
+    # Verify code
+    if not check_password_hash(otp_entry.otp, otp_code):
+        otp_entry.attempts += 1
+        db.session.commit()
+        if otp_entry.attempts >= 5:
+            return jsonify({"msg": "Too many attempts."}), 400
+        return jsonify({"msg": "Invalid OTP."}), 400
+
+    # OTP verified! Mark it as verified in database
+    otp_entry.verified = True
+    db.session.commit()
+
+    log_audit("Registration OTP Verified", details=f"Registration OTP verified successfully for {email}")
+    return jsonify({
+        "verified": True
+    }), 200
 
 
 @auth_bp.route('/forgot-password', methods=['POST'])
@@ -645,76 +740,57 @@ def forgot_password():
         
     email_or_phone = data['email_or_phone'].strip()
     
-    # Query user by email or phone
-    user = User.query.filter((User.email == email_or_phone) | (User.phone == email_or_phone)).first()
+    # Query user by email, phone, or username (case-insensitive)
+    user = User.query.filter(
+        (User.email.ilike(email_or_phone)) | 
+        (User.phone == email_or_phone) | 
+        (User.username.ilike(email_or_phone))
+    ).first()
+    
     if not user:
-        return jsonify({"msg": "No account associated with this email or phone"}), 404
+        return jsonify({"msg": "No account found."}), 404
         
     if user.status != 'active':
         return jsonify({"msg": "Account is inactive or pending approval"}), 403
         
-    # Validate format
-    is_phone = email_or_phone.startswith('+') or email_or_phone.replace('-', '').replace(' ', '').replace('(', '').replace(')', '').isdigit()
-    is_email = not is_phone
-    if is_email:
-        if not validate_email_format(email_or_phone):
-            return jsonify({"msg": "Invalid email address format"}), 400
-    else:
-        if not validate_phone_format(email_or_phone):
-            return jsonify({"msg": "Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)"}), 400
-            
+    # Use user's primary email or phone for rate-limiting
+    dispatch_target = user.email if user.email else user.phone
+
     # Check rate limit
-    if not check_otp_rate_limit(email_or_phone):
+    if not check_otp_rate_limit(dispatch_target):
         return jsonify({"msg": "Maximum of 5 OTP requests per hour exceeded"}), 429
         
+    # Check rate limit: 60-second throttle
+    now = datetime.utcnow()
+    if user.otp_last_requested_at:
+        seconds_since_last = (now - user.otp_last_requested_at).total_seconds()
+        if seconds_since_last < 60:
+            return jsonify({"msg": f"Please wait {int(60 - seconds_since_last)} seconds before requesting a new code"}), 429
+
     # Generate 6-digit code
     import secrets
     otp_code = f"{secrets.SystemRandom().randint(100000, 999999)}"
     
     # Store in memory cache for test verification runner in the same process
+    otp_cache[dispatch_target] = otp_code
     otp_cache[email_or_phone] = otp_code
+    if user.email:
+        otp_cache[user.email] = otp_code
+    if user.phone:
+        otp_cache[user.phone] = otp_code
     
     # Assign attributes in-memory (do not commit yet)
-    now = datetime.utcnow()
     user.otp_hash = generate_password_hash(otp_code)
-    user.otp_expires_at = now + timedelta(minutes=2)
+    user.otp_expires_at = now + timedelta(minutes=5) # 5 minutes expiration
     user.otp_last_requested_at = now
     user.otp_verified = False
         
-    # Dispatch OTP
-    success = False
-    error_msg = ""
-    if is_email:
-        smtp_host = os.environ.get('SMTP_HOST') or os.environ.get('MAIL_SERVER')
-        smtp_port = os.environ.get('SMTP_PORT') or os.environ.get('MAIL_PORT')
-        smtp_user = os.environ.get('SMTP_USER') or os.environ.get('MAIL_USERNAME')
-        smtp_pass = os.environ.get('SMTP_PASS') or os.environ.get('MAIL_PASSWORD')
-        email_from = os.environ.get('EMAIL_FROM') or os.environ.get('MAIL_DEFAULT_SENDER')
-        if not (smtp_host and smtp_port and smtp_user and smtp_pass and email_from):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                return jsonify({"msg": "Configuration Error: SMTP credentials are not configured in .env"}), 500
-                
-        subject = "Nova Library - Password Reset OTP"
-        body = f"Hello {user.username},\n\nYour password reset OTP is {otp_code}.\n\nThis code expires in 2 minutes.\n\nNova System Security Node"
-        success, error_msg = NotificationService.send_email(email_or_phone, subject, body, otp_code=otp_code)
-    else:
-        account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-        auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-        from_number = os.environ.get('TWILIO_FROM_NUMBER')
-        if not (account_sid and auth_token and from_number):
-            if os.environ.get('MOCK_OTP_DELIVERY') == 'true':
-                pass
-            else:
-                return jsonify({"msg": "Configuration Error: Twilio credentials are not configured in .env"}), 500
-                
-        message = f"Nova Library: Your password reset OTP is {otp_code}. Valid for 2 minutes."
-        success, error_msg = NotificationService.send_sms(email_or_phone, message, otp_code=otp_code)
-        
+    # Dispatch OTP via both channels independently
+    success, msg, status_code = dispatch_dual_channel_otp(user, otp_code, purpose="password_reset")
+    
     if not success:
         db.session.rollback()
-        return jsonify({"msg": error_msg or "Failed to deliver OTP"}), 500
+        return jsonify({"msg": msg}), status_code
         
     # Commit changes on success
     try:
@@ -723,8 +799,8 @@ def forgot_password():
         db.session.rollback()
         return jsonify({"msg": "Failed to save OTP"}), 500
         
-    log_audit("Password Reset OTP Requested", details=f"Password Reset OTP sent to {email_or_phone}", user_id=user.id)
-    return jsonify({"success": True, "msg": "Password reset OTP sent successfully"}), 200
+    log_audit("Password Reset OTP Requested", details=f"Password Reset OTP sent: {msg}", user_id=user.id)
+    return jsonify({"success": True, "msg": msg}), 200
 
 
 @auth_bp.route('/reset-password', methods=['POST'])

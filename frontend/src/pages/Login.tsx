@@ -21,6 +21,13 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
 
 
   const [isRegister, setIsRegister] = useState(false);
+  const [regOtpSent, setRegOtpSent] = useState(false);
+  const [regOtpVerified, setRegOtpVerified] = useState(false);
+  const [regOtpDigits, setRegOtpDigits] = useState<string[]>(Array(6).fill(''));
+  const [regOtpTimer, setRegOtpTimer] = useState(0);
+  const [regOtpAttemptsRemaining, setRegOtpAttemptsRemaining] = useState(5);
+  const [regOtpLoading, setRegOtpLoading] = useState(false);
+  const regDigitRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -43,6 +50,145 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
   const [otpTimer, setOtpTimer] = useState(0);
 
   const [orgLogo, setOrgLogo] = useState('/logo.png');
+  
+  useEffect(() => {
+    if (regOtpTimer <= 0) return;
+    const interval = setInterval(() => {
+      setRegOtpTimer(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [regOtpTimer]);
+
+  const handleRegDigitChange = (index: number, val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    const newDigits = [...regOtpDigits];
+    newDigits[index] = val.slice(-1);
+    setRegOtpDigits(newDigits);
+    if (val && index < 5) {
+      regDigitRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleRegDigitKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      const newDigits = [...regOtpDigits];
+      if (!newDigits[index] && index > 0) {
+        newDigits[index - 1] = '';
+        setRegOtpDigits(newDigits);
+        regDigitRefs.current[index - 1]?.focus();
+      } else {
+        newDigits[index] = '';
+        setRegOtpDigits(newDigits);
+      }
+    }
+  };
+
+  const handleRegDigitPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text');
+    if (!/^\d{6}$/.test(pasted)) return;
+    const digits = pasted.split('');
+    setRegOtpDigits(digits);
+    regDigitRefs.current[5]?.focus();
+  };
+
+  const handleSendRegOTP = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (!regUsername.trim()) {
+      triggerNotification("Username is required.", "error");
+      return;
+    }
+    const emailPattern = /^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/;
+    if (!emailPattern.test(regEmail)) {
+      triggerNotification("Invalid email address format.", "error");
+      return;
+    }
+    const phonePattern = /^\+[1-9]\d{7,14}$/;
+    let cleanPhone = regPhone.replace(/[\s()-]/g, '');
+    if (cleanPhone && !cleanPhone.startsWith('+')) {
+      cleanPhone = '+' + cleanPhone;
+    }
+    if (!phonePattern.test(cleanPhone)) {
+      triggerNotification("Invalid phone number format. Must start with '+' followed by country code (e.g. +91XXXXXXXXXX)", "error");
+      return;
+    }
+    if (regPassword.length < 8) {
+      triggerNotification("Password must be at least 8 characters long.", "error");
+      return;
+    }
+    if (!regDept) {
+      triggerNotification("Department selection is required.", "error");
+      return;
+    }
+
+    setRegOtpLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await fetch('http://127.0.0.1:5000/api/auth/send-registration-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: regUsername,
+          email: regEmail,
+          phone: cleanPhone,
+          password: regPassword,
+          department: regDept
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || data.message || 'Failed to send OTP.');
+
+      setRegOtpSent(true);
+      setRegOtpTimer(60);
+      setRegOtpAttemptsRemaining(5);
+      setRegOtpDigits(Array(6).fill(''));
+      triggerNotification('OTP sent successfully.', 'success');
+    } catch (err: any) {
+      triggerNotification(err.message, 'error');
+    } finally {
+      setRegOtpLoading(false);
+    }
+  };
+
+  const handleVerifyRegOTP = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    const otp = regOtpDigits.join('');
+    if (otp.length < 6) {
+      triggerNotification("Please enter all 6 digits of the verification code.", "error");
+      return;
+    }
+
+    setRegOtpLoading(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const res = await fetch('http://127.0.0.1:5000/api/auth/verify-registration-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: regEmail.toLowerCase(),
+          otp: otp
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setRegOtpAttemptsRemaining(prev => Math.max(0, prev - 1));
+        throw new Error(data.msg || 'Invalid verification code.');
+      }
+
+      setRegOtpVerified(true);
+      triggerNotification('OTP verified successfully.', 'success');
+    } catch (err: any) {
+      triggerNotification(err.message, 'error');
+    } finally {
+      setRegOtpLoading(false);
+    }
+  };
   const [orgName, setOrgName] = useState('NOVA LIBRARY');
 
   useEffect(() => {
@@ -134,8 +280,8 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
       if (!res.ok || data.success === false) throw new Error(data.message || data.msg || 'Server Error');
 
       setOtpStep(2);
-      setOtpTimer(30);
-      triggerNotification('OTP code has been sent successfully. Please check: Inbox, Spam, Promotions, Updates.', 'success');
+      setOtpTimer(60);
+      triggerNotification(data.msg || data.message || 'OTP code has been sent successfully.', 'success');
     } catch (err: any) {
       triggerNotification('Unable to send OTP. Reason: ' + err.message, 'error');
     } finally {
@@ -487,11 +633,20 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!regOtpVerified) {
+      triggerNotification("Please verify your OTP first.", "error");
+      return;
+    }
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
 
     try {
+      let cleanPhone = regPhone.replace(/[\s()-]/g, '');
+      if (cleanPhone && !cleanPhone.startsWith('+')) {
+        cleanPhone = '+' + cleanPhone;
+      }
+
       const res = await fetch('http://127.0.0.1:5000/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -500,7 +655,7 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
           email: regEmail,
           password: regPassword,
           department: regDept,
-          phone: regPhone,
+          phone: cleanPhone,
           role: 'member'
         })
       });
@@ -535,7 +690,7 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
   const radius = 20;
   const strokeWidth = 3;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (otpTimer / 30) * circumference;
+  const strokeDashoffset = circumference - (otpTimer / 60) * circumference;
 
   return (
     <div 
@@ -983,9 +1138,90 @@ export default function Login({ onLoginSuccess, onBack }: LoginProps) {
                   </div>
                 </div>
 
+                {/* Send OTP / Verification Section */}
+                <div className="border-t border-white/5 pt-3 mt-3">
+                  {!regOtpSent && !regOtpVerified && (
+                    <button
+                      type="button"
+                      onClick={handleSendRegOTP}
+                      disabled={regOtpLoading}
+                      className={`w-full bg-white/5 border border-white/10 hover:bg-white/10 text-white py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all hover:scale-[1.01] ${
+                        loginTheme === 'soft-sakura' ? 'bg-pink-100 hover:bg-pink-200 border-pink-300 text-pink-700' : ''
+                      }`}
+                    >
+                      {regOtpLoading ? " quantum dispatching..." : "Send OTP"}
+                    </button>
+                  )}
+
+                  {regOtpSent && !regOtpVerified && (
+                    <div className="space-y-3 mt-2">
+                      <div className="text-center">
+                        <label className={`text-white/60 text-xs font-semibold block mb-2 ${
+                          loginTheme === 'soft-sakura' ? 'text-pink-700' : ''
+                        }`}>Verification Code</label>
+                        <div className="flex justify-center gap-2">
+                          {regOtpDigits.map((digit, idx) => (
+                            <input
+                              key={idx}
+                              id={`reg-otp-digit-${idx}`}
+                              type="text"
+                              maxLength={1}
+                              value={digit}
+                              onChange={(e) => handleRegDigitChange(idx, e.target.value)}
+                              onKeyDown={(e) => handleRegDigitKeyDown(idx, e)}
+                              onPaste={handleRegDigitPaste}
+                              ref={(el) => { regDigitRefs.current[idx] = el; }}
+                              className={`w-10 h-12 text-center font-mono font-bold text-lg bg-slate-950/60 border border-white/10 rounded-xl focus:border-cyan-400 focus:outline-none text-white ${
+                                loginTheme === 'soft-sakura' ? 'bg-white border-pink-300 text-slate-800 focus:border-pink-500' : ''
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleVerifyRegOTP}
+                          disabled={regOtpLoading || regOtpAttemptsRemaining <= 0}
+                          className={`flex-1 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-blue-500 hover:to-cyan-500 text-white font-bold py-2 rounded-xl text-xs shadow-md cursor-pointer transition-all ${
+                            loginTheme === 'soft-sakura' ? 'from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600' : ''
+                          }`}
+                        >
+                          Verify OTP
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSendRegOTP}
+                          disabled={regOtpTimer > 0 || regOtpLoading}
+                          className={`flex-1 bg-white/5 border border-white/10 hover:bg-white/10 text-white py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all ${
+                            loginTheme === 'soft-sakura' ? 'bg-pink-100 hover:bg-pink-200 border-pink-300 text-pink-700' : ''
+                          }`}
+                        >
+                          {regOtpTimer > 0 ? `Resend OTP (${regOtpTimer}s)` : "Resend OTP"}
+                        </button>
+                      </div>
+
+                      <div className="flex justify-between items-center px-1 text-[10px] text-white/40">
+                        <span>Attempts remaining: <strong className="text-rose-400">{regOtpAttemptsRemaining}</strong></span>
+                        <span>OTP Status: <strong className="text-yellow-400">Waiting</strong></span>
+                      </div>
+                    </div>
+                  )}
+
+                  {regOtpVerified && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 py-2 rounded-xl text-xs font-bold text-center flex items-center justify-center gap-1.5 mt-2">
+                      <span>✓ OTP Verified Successfully</span>
+                    </div>
+                  )}
+                </div>
+
                 <button 
                   type="submit" 
+                  disabled={!regOtpVerified}
                   className={`w-full mt-4 bg-gradient-to-r from-cyan-600 to-purple-600 hover:from-purple-600 hover:to-cyan-600 text-white font-bold py-2.5 rounded-xl shadow-lg border border-white/10 text-sm hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer ${
+                    !regOtpVerified ? 'opacity-40 cursor-not-allowed hover:scale-100' : ''
+                  } ${
                     loginTheme === 'soft-sakura'
                       ? 'from-pink-600 to-rose-500 hover:from-rose-500 hover:to-pink-600 shadow-pink-500/10 hover:shadow-[0_0_15px_rgba(236,72,153,0.4)] border-pink-300/40'
                       : ''

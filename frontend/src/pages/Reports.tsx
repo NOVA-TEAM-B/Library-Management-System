@@ -106,7 +106,13 @@ export default function Reports() {
   const handleExport = async (format: string) => {
     try {
       const token = localStorage.getItem('nova_jwt_token');
-      const res = await fetch(`http://127.0.0.1:5000/api/reports/export?type=${reportType}&format=${format}`, {
+      let urlPath = `http://127.0.0.1:5000/api/reports/export?type=${reportType}&format=${format}`;
+      if (reportType === 'books') {
+        const routeFormat = format === 'xlsx' ? 'excel' : format;
+        urlPath = `http://127.0.0.1:5000/api/reports/books/${routeFormat}`;
+      }
+
+      const res = await fetch(urlPath, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -127,7 +133,19 @@ export default function Reports() {
       const month = String(now.getUTCMonth() + 1).padStart(2, '0');
       const day = String(now.getUTCDate()).padStart(2, '0');
       
-      a.download = `nova_x_${reportType}_report_${year}${month}${day}.${format}`;
+      if (reportType === 'books') {
+        if (format === 'csv') {
+          a.download = `books_report_${year}${month}${day}.csv`;
+        } else if (format === 'xlsx') {
+          a.download = `books_report.xlsx`;
+        } else if (format === 'pdf') {
+          a.download = `books_report.pdf`;
+        } else {
+          a.download = `books_report_${year}${month}${day}.${format}`;
+        }
+      } else {
+        a.download = `nova_x_${reportType}_report_${year}${month}${day}.${format}`;
+      }
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -166,7 +184,7 @@ export default function Reports() {
             {user.org_logo ? (
               <img src={user.org_logo} className="w-14 h-14 object-contain bg-slate-50 border border-slate-200 p-1 rounded-xl" alt="Logo" />
             ) : (
-              <img src="/logo-icon.svg?v=2" className="w-14 h-14 object-contain bg-slate-50 border border-slate-200 p-1 rounded-xl" alt="Logo" />
+              <img src="/logo.png" className="w-14 h-14 object-contain bg-slate-50 border border-slate-200 p-1 rounded-xl" alt="Logo" />
             )}
             <div>
               <h1 className="text-lg font-black tracking-wide uppercase m-0 text-slate-900">{user.org_name || 'NOVA LIBRARY'}</h1>
@@ -232,7 +250,14 @@ export default function Reports() {
                   <Download className="w-3.5 h-3.5" /> PDF
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (reportType === 'books') {
+                      const token = localStorage.getItem('nova_jwt_token');
+                      window.open(`http://127.0.0.1:5000/api/reports/books/print?token=${token}`, '_blank');
+                    } else {
+                      window.print();
+                    }
+                  }}
                   className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all active:scale-95 cursor-pointer"
                 >
                   Print

@@ -87,7 +87,7 @@ export default function Organizations() {
         body: JSON.stringify({
           name,
           subdomain: subdomain.toLowerCase().replace(/\s+/g, ''),
-          logo_url: logoUrl || '/logo.svg',
+          logo_url: logoUrl || '/logo.png',
           fine_rate: parseFloat(fineRate),
           status
         })
@@ -281,7 +281,7 @@ export default function Organizations() {
               <label className="text-white/60 block mb-1 font-semibold">Logo Image URL (Optional)</label>
               <input
                 type="text"
-                placeholder="/logo.svg"
+                placeholder="/logo.png"
                 value={logoUrl}
                 onChange={e => setLogoUrl(e.target.value)}
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-cyan-400"
