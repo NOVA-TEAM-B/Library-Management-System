@@ -65,8 +65,15 @@ from backend.routes.enterprise import enterprise_bp
 app = Flask(__name__)
 app.config.from_object(Settings)
 
-# Enable CORS (allow React dev server on port 5173)
-CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
+# Enable CORS (allow React dev server on port 5173-5176)
+CORS(app, supports_credentials=True, resources={r"/api/*": {
+    "origins": [
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "http://localhost:5175", "http://127.0.0.1:5175",
+        "http://localhost:5176", "http://127.0.0.1:5176"
+    ]
+}})
 
 # Initialize Database
 db.init_app(app)

@@ -10,5 +10,16 @@ from backend.models.Notification import Notification
 from backend.models.BookRequest import BookRequest
 from backend.models.CalendarEvent import CalendarEvent
 from backend.models.RegistrationOtp import RegistrationOtp
+from backend.models.BookReview import BookReview
+from backend.models.SeatBooking import SeatBooking
+from backend.models.DigitalDoc import DigitalDoc
+from backend.models.MemberXP import MemberXP
+from backend.models.Badge import Badge
+from backend.models.TelemetryLog import TelemetryLog
 
-__all__ = ['User', 'Book', 'Issue', 'Fine', 'Reservation', 'Organization', 'AuditLog', 'Subscription', 'Transaction', 'EnterpriseRequest', 'Notification', 'BookRequest', 'CalendarEvent', 'RegistrationOtp']
+__all__ = [
+    'User', 'Book', 'Issue', 'Fine', 'Reservation', 'Organization', 'AuditLog', 
+    'Subscription', 'Transaction', 'EnterpriseRequest', 'Notification', 'BookRequest', 
+    'CalendarEvent', 'RegistrationOtp', 'BookReview', 'SeatBooking', 'DigitalDoc', 
+    'MemberXP', 'Badge', 'TelemetryLog'
+]

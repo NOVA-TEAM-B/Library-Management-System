@@ -24,6 +24,7 @@ import AuditLogs from './pages/AuditLogs';
 import Settings from './pages/Settings';
 import LibraryRequests from './pages/LibraryRequests';
 import Billing from './pages/Billing';
+import EnterpriseHub from './pages/EnterpriseHub';
 
 function SakuraBackground() {
   const [petals, setPetals] = useState<any[]>([]);
@@ -113,6 +114,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [globalSearch, setGlobalSearch] = useState('');
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   // 1. Live Running Clock
   useEffect(() => {
@@ -123,6 +125,11 @@ export default function App() {
   // 2. Keyboard Shortcuts Listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl + K -> Command Palette
+      if (e.ctrlKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowCommandPalette(prev => !prev);
+      }
       // Alt + D -> Dashboard
       if (e.altKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
@@ -340,7 +347,7 @@ export default function App() {
 
   const hasAccess = (tab: string) => {
     if (!user) return false;
-    if (tab === 'dashboard' || tab === 'profile' || tab === 'billing') return true;
+    if (tab === 'dashboard' || tab === 'profile' || tab === 'billing' || tab === 'enterprise_hub') return true;
     
     if (user.role === 'superadmin') {
       return ['dashboard', 'organizations', 'audit_logs', 'settings', 'profile'].includes(tab);
@@ -577,6 +584,15 @@ export default function App() {
                 </button>
               </>
             )}
+            
+            {/* Enterprise Hub Link (Optional Premium Features) */}
+            <button
+              onClick={() => { setActiveTab('enterprise_hub'); setSidebarOpen(false); }}
+              className={`flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-semibold transition-all cursor-pointer ${activeTab === 'enterprise_hub' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-orange-500/20' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+            >
+              <Sparkles className="w-4.5 h-4.5 text-amber-400 animate-pulse" />
+              {!collapsed && <span className="animate-fade-in text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-orange-300 font-extrabold">Enterprise Hub</span>}
+            </button>
           </nav>
         </div>
 
@@ -683,6 +699,15 @@ export default function App() {
               )}
             </div>
 
+            {/* Command Palette Launcher */}
+            <button
+              onClick={() => setShowCommandPalette(true)}
+              className="bg-white/5 border border-white/10 p-2.5 rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
+              title="Open Command Palette (Ctrl + K)"
+            >
+              <Keyboard className="w-4.5 h-4.5 text-amber-400 animate-pulse" />
+            </button>
+
             {/* Dark/Light mode theme mode toggle */}
             <button
               onClick={toggleThemeMode}
@@ -714,10 +739,94 @@ export default function App() {
               {activeTab === 'audit_logs' && <AuditLogs />}
               {activeTab === 'settings' && <Settings />}
               {activeTab === 'billing' && <Billing user={user} onProfileUpdate={setUser} />}
+              {activeTab === 'enterprise_hub' && <EnterpriseHub user={user} onTabChange={setActiveTab} />}
             </>
           )}
         </div>
       </main>
+
+      {/* Command Palette Modal */}
+      {showCommandPalette && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-950/80 backdrop-blur-md p-4 md:p-20">
+          <div className="w-full max-w-2xl bg-[#0b0f19] border border-white/10 rounded-2xl shadow-2xl p-4 overflow-hidden flex flex-col space-y-4">
+            <div className="flex items-center gap-3 border-b border-white/5 pb-3">
+              <Search className="w-5 h-5 text-amber-400" />
+              <input 
+                type="text"
+                placeholder="Search commands, pages, or search catalog..."
+                className="flex-1 bg-transparent text-sm text-white focus:outline-none placeholder-slate-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setShowCommandPalette(false);
+                  }
+                }}
+              />
+              <button 
+                onClick={() => setShowCommandPalette(false)}
+                className="text-[10px] text-slate-500 hover:text-white border border-white/10 px-2 py-1 rounded-md"
+              >
+                ESC
+              </button>
+            </div>
+
+            <div className="space-y-2.5 max-h-80 overflow-y-auto">
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Global Navigation Links</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {[
+                  { label: 'Navigate: Dashboard Dashboard', tab: 'dashboard' },
+                  { label: 'Navigate: Book Catalog Explorer', tab: 'books' },
+                  { label: 'Navigate: Library Requests Queue', tab: 'requests', privilege: ['admin', 'librarian'] },
+                  { label: 'Navigate: Lending Desk', tab: 'issue', privilege: ['librarian'] },
+                  { label: 'Navigate: Fine Center', tab: 'fines', privilege: ['librarian'] },
+                  { label: 'Navigate: Analytics Reports', tab: 'reports', privilege: ['admin', 'librarian'] },
+                  { label: 'Navigate: Student Registry', tab: 'members', privilege: ['admin'] },
+                  { label: 'Navigate: System Audit Logs', tab: 'audit_logs', privilege: ['superadmin'] },
+                  { label: 'Navigate: Enterprise Premium Suite', tab: 'enterprise_hub' },
+                  { label: 'Navigate: Billing & Plans Subscriptions', tab: 'billing', privilege: ['admin'] },
+                  { label: 'Navigate: Profile Settings', tab: 'profile' }
+                ].filter(cmd => !cmd.privilege || cmd.privilege.includes(user?.role)).map((cmd, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setActiveTab(cmd.tab);
+                      setShowCommandPalette(false);
+                    }}
+                    className="w-full text-left p-2.5 rounded-xl bg-white/[0.01] hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 text-xs text-slate-300 hover:text-white transition-all flex items-center justify-between cursor-pointer"
+                  >
+                    <span>{cmd.label}</span>
+                    <span className="text-[9px] uppercase bg-slate-900 border border-white/10 px-2 py-0.5 rounded text-slate-500 font-mono">Select</span>
+                  </button>
+                ))}
+              </div>
+
+              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block pt-2">Global System Actions</span>
+              <div className="space-y-2">
+                <button
+                  onClick={() => {
+                    toggleThemeMode();
+                    setShowCommandPalette(false);
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl bg-white/[0.01] hover:bg-amber-500/10 border border-white/5 hover:border-amber-500/30 text-xs text-slate-300 hover:text-white transition-all flex items-center justify-between cursor-pointer"
+                >
+                  <span>Action: Toggle Dark / Light theme preference</span>
+                  <span className="text-[9px] uppercase bg-slate-900 border border-white/10 px-2 py-0.5 rounded text-slate-500 font-mono">Trigger</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setShowCommandPalette(false);
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl bg-white/[0.01] hover:bg-red-500/10 border border-white/5 hover:border-red-500/30 text-xs text-slate-300 hover:text-red-400 transition-all flex items-center justify-between cursor-pointer"
+                >
+                  <span>Action: Logout system console session</span>
+                  <span className="text-[9px] uppercase bg-slate-900 border border-white/10 px-2 py-0.5 rounded text-slate-500 font-mono">Exit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FLOATING SYSTEM AI NODE */}
       <AIAssistant />

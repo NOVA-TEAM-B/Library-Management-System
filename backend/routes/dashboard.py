@@ -405,6 +405,7 @@ def get_dashboard_stats():
 def ai_chat():
     claims = get_jwt()
     user_role = claims.get('role', 'member')
+    user_id = int(get_jwt_identity())
     
     data = request.get_json()
     if not data or not data.get('prompt'):
@@ -413,5 +414,5 @@ def ai_chat():
     prompt = data['prompt']
     
     # Execute AI processor
-    ai_response = AIService.process_prompt(prompt, user_role)
+    ai_response = AIService.process_prompt(prompt, user_role, user_id)
     return jsonify(ai_response), 200
