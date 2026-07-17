@@ -1,0 +1,39 @@
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    color: #000000 !important;
+    background-color: #ffffff !important;
+    font-size: 12px;
+  }
+  .no-print,
+  nav,
+  aside,
+  header,
+  footer,
+  button,
+  .buttons,
+  .sidebar,
+  .navbar,
+  .charts-container {
+    display: none !important;
+  }
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  th, td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 8px 10px !important;
+    color: #000000 !important;
+  }
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+  }
+}
