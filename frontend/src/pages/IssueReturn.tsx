@@ -72,34 +72,49 @@ export default function IssueReturn() {
     setDataLoading(true);
     try {
       const token = localStorage.getItem('nova_jwt_token');
-      
+      const authHeaders: Record<string, string> = token ? { 'Authorization': `Bearer ${token}` } : {};
+
       // Load Members
       const mRes = await fetch('http://127.0.0.1:5000/api/members', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders
       });
-      const mData = await mRes.json();
-      setMembers(mData.members || []);
+      if (mRes.ok) {
+        const mData = await mRes.json();
+        setMembers(Array.isArray(mData.members) ? mData.members : (Array.isArray(mData) ? mData : []));
+      } else {
+        setMembers([]);
+      }
 
       // Load Books
-      const bRes = await fetch('http://127.0.0.1:5000/api/books');
-      const bData = await bRes.json();
-      setBooks(bData || []);
+      const bRes = await fetch('http://127.0.0.1:5000/api/books', {
+        headers: authHeaders
+      });
+      if (bRes.ok) {
+        const bData = await bRes.json();
+        setBooks(Array.isArray(bData) ? bData : (Array.isArray(bData.books) ? bData.books : []));
+      } else {
+        setBooks([]);
+      }
 
       // Load Fines and Issues for Verification Check
       const iRes = await fetch('http://127.0.0.1:5000/api/issues', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders
       });
       if (iRes.ok) {
         const iData = await iRes.json();
-        setAllIssues(iData || []);
+        setAllIssues(Array.isArray(iData) ? iData : (Array.isArray(iData.issues) ? iData.issues : []));
+      } else {
+        setAllIssues([]);
       }
 
       const fRes = await fetch('http://127.0.0.1:5000/api/issues/fines', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: authHeaders
       });
       if (fRes.ok) {
         const fData = await fRes.json();
-        setAllFines(fData || []);
+        setAllFines(Array.isArray(fData.fines) ? fData.fines : (Array.isArray(fData) ? fData : []));
+      } else {
+        setAllFines([]);
       }
     } catch (err: any) {
       console.error("Lending desk loader failed: ", err.message);
@@ -110,6 +125,15 @@ export default function IssueReturn() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener('nova_sync', handleSync);
+    window.addEventListener('nova_sync_local', handleSync);
+    return () => {
+      window.removeEventListener('nova_sync', handleSync);
+      window.removeEventListener('nova_sync_local', handleSync);
+    };
   }, []);
 
   // Keyboard Shortcuts (Ctrl+Enter to advance, Esc to reset)
@@ -134,12 +158,15 @@ export default function IssueReturn() {
 
   // Member statistics calculations
   const getMemberStats = (memberId: number) => {
-    const memberIssues = allIssues.filter(i => i.member_id === memberId);
-    const activeCheckouts = memberIssues.filter(i => i.status === 'issued' || i.status === 'overdue');
-    const overdueCheckouts = memberIssues.filter(i => i.status === 'overdue');
+    const safeIssues = Array.isArray(allIssues) ? allIssues : [];
+    const safeFines = Array.isArray(allFines) ? allFines : [];
+
+    const memberIssues = safeIssues.filter(i => i && i.member_id === memberId);
+    const activeCheckouts = memberIssues.filter(i => i && (i.status === 'issued' || i.status === 'overdue'));
+    const overdueCheckouts = memberIssues.filter(i => i && i.status === 'overdue');
     
-    const memberFines = allFines.filter(f => f.member_id === memberId && f.status === 'pending');
-    const unpaidFineTotal = memberFines.reduce((sum, f) => sum + f.amount, 0);
+    const memberFines = safeFines.filter(f => f && f.member_id === memberId && f.status === 'pending');
+    const unpaidFineTotal = memberFines.reduce((sum, f) => sum + (f.amount || 0), 0);
 
     return {
       activeCount: activeCheckouts.length,
@@ -151,13 +178,63 @@ export default function IssueReturn() {
 
   const memberStats = selectedMember ? getMemberStats(selectedMember.id) : { activeCount: 0, overdueCount: 0, unpaidFineTotal: 0, isRestricted: false };
 
+  // Return & Renew Book Handlers
+  const handleReturnBook = async (issueId: number) => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch(`http://127.0.0.1:5000/api/issues/${issueId}/return`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || 'Failed to return book');
+      if (window.showToast) window.showToast('Book returned successfully!', 'success');
+      window.dispatchEvent(new CustomEvent('nova_sync_local'));
+      await loadData();
+    } catch (err: any) {
+      if (window.showToast) window.showToast(err.message, 'error');
+      else alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRenewBook = async (issueId: number) => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('nova_jwt_token');
+      const res = await fetch(`http://127.0.0.1:5000/api/issues/${issueId}/renew`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ due_days: 14 })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.msg || 'Failed to renew book');
+      if (window.showToast) window.showToast('Book loan renewed for 14 days!', 'success');
+      window.dispatchEvent(new CustomEvent('nova_sync_local'));
+      await loadData();
+    } catch (err: any) {
+      if (window.showToast) window.showToast(err.message, 'error');
+      else alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Simulated Scanner triggers
   const triggerMemberScanner = () => {
-    if (members.length === 0) return;
+    const safeMembers = Array.isArray(members) ? members : [];
+    if (safeMembers.length === 0) return;
     setScannerActive(true);
     setTimeout(() => {
       setScannerActive(false);
-      const randMem = members[Math.floor(Math.random() * members.length)];
+      const randMem = safeMembers[Math.floor(Math.random() * safeMembers.length)];
       setSelectedMember(randMem);
       setStep(2);
       if (window.showToast) window.showToast(`Scanned Member: ${randMem.username}`, "success");
@@ -165,7 +242,8 @@ export default function IssueReturn() {
   };
 
   const triggerBookScanner = () => {
-    const availableBooks = books.filter(b => b.quantity > 0);
+    const safeBooks = Array.isArray(books) ? books : [];
+    const availableBooks = safeBooks.filter(b => b.quantity > 0);
     if (availableBooks.length === 0) return;
     setScannerActive(true);
     setTimeout(() => {
@@ -201,6 +279,7 @@ export default function IssueReturn() {
 
       setReceiptData(data.issue);
       setStep(6);
+      window.dispatchEvent(new CustomEvent('nova_sync_local'));
       if (window.showToast) window.showToast("Book checked out successfully! Receipt ready.", "success");
     } catch (err: any) {
       if (window.showToast) window.showToast(err.message, "error");
@@ -343,7 +422,7 @@ export default function IssueReturn() {
                 ) : memberSearch.trim() && (
                   <div className="absolute w-full mt-1.5 bg-[#0e1220] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-20 max-h-40 overflow-y-auto text-left text-xs">
                     {members
-                      .filter(m => m.username.toLowerCase().includes(memberSearch.toLowerCase()) || m.membership_id.toLowerCase().includes(memberSearch.toLowerCase()))
+                      .filter(m => m && ((m.username ?? '').toLowerCase().includes(memberSearch.toLowerCase()) || (m.membership_id ?? '').toLowerCase().includes(memberSearch.toLowerCase())))
                       .map(m => (
                         <button
                           key={m.id}
@@ -352,10 +431,10 @@ export default function IssueReturn() {
                           className="w-full p-2.5 hover:bg-white/5 cursor-pointer text-white border-b border-white/5 text-left flex justify-between items-center"
                         >
                           <div>
-                            <strong className="text-white font-bold">{m.username}</strong>
-                            <span className="text-white/40 block text-[9px] mt-0.5">ID: {m.membership_id}</span>
+                            <strong className="text-white font-bold">{m.username || 'Unknown'}</strong>
+                            <span className="text-white/40 block text-[9px] mt-0.5">ID: {m.membership_id || 'N/A'}</span>
                           </div>
-                          <span className="text-[9px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{m.department}</span>
+                          <span className="text-[9px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{m.department || 'N/A'}</span>
                         </button>
                       ))}
                   </div>
@@ -377,9 +456,9 @@ export default function IssueReturn() {
                 <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-3.5 text-[10px]">
                   <span className="text-[9px] text-white/30 uppercase font-extrabold block border-b border-white/5 pb-1 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5 text-cyan-400" /> Member File</span>
                   <div className="space-y-2">
-                    <div className="flex justify-between"><span>Name:</span><strong className="text-white font-bold">{selectedMember.username}</strong></div>
-                    <div className="flex justify-between"><span>Registry ID:</span><strong className="text-white font-mono">{selectedMember.membership_id}</strong></div>
-                    <div className="flex justify-between"><span>Department:</span><strong className="text-white font-semibold">{selectedMember.department}</strong></div>
+                    <div className="flex justify-between"><span>Name:</span><strong className="text-white font-bold">{selectedMember.username || 'Unknown'}</strong></div>
+                    <div className="flex justify-between"><span>Registry ID:</span><strong className="text-white font-mono">{selectedMember.membership_id || 'N/A'}</strong></div>
+                    <div className="flex justify-between"><span>Department:</span><strong className="text-white font-semibold">{selectedMember.department || 'N/A'}</strong></div>
                     <div className="flex justify-between"><span>Email:</span><span className="text-cyan-300 font-mono text-[9px]">{selectedMember.email || 'N/A'}</span></div>
                   </div>
                 </div>
@@ -440,6 +519,49 @@ export default function IssueReturn() {
                   </div>
                 </div>
               )}
+
+              {/* Active loans list for returning / renewing */}
+              {(() => {
+                const activeLoans = (Array.isArray(allIssues) ? allIssues : []).filter(
+                  i => i && i.member_id === selectedMember.id && (i.status === 'issued' || i.status === 'overdue')
+                );
+                if (activeLoans.length === 0) return null;
+                return (
+                  <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-3">
+                    <span className="text-[9px] text-cyan-400 uppercase font-extrabold block border-b border-white/5 pb-1">
+                      Active Loans for {selectedMember.username || 'Member'} ({activeLoans.length})
+                    </span>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {activeLoans.map(loan => (
+                        <div key={loan.id} className="p-2.5 rounded-lg bg-white/[0.02] border border-white/5 flex items-center justify-between gap-2 text-[10px]">
+                          <div className="min-w-0 flex-1">
+                            <strong className="text-white font-bold block truncate">{loan.book_title || 'Unknown Title'}</strong>
+                            <span className="text-white/40 text-[9px] block">
+                              Due: <span className={loan.status === 'overdue' ? 'text-rose-400 font-bold' : 'text-amber-300'}>{(loan.due_date ?? '').split(' ')[0] || 'N/A'}</span> | Status: <span className="uppercase font-mono">{loan.status || '-'}</span>
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleReturnBook(loan.id)}
+                              disabled={loading}
+                              className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-bold rounded-lg transition-all text-[9px] cursor-pointer disabled:opacity-50"
+                            >
+                              Return Book
+                            </button>
+                            <button
+                              onClick={() => handleRenewBook(loan.id)}
+                              disabled={loading}
+                              className="px-2.5 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 font-bold rounded-lg transition-all text-[9px] cursor-pointer disabled:opacity-50"
+                            >
+                              Renew (14d)
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-between items-center pt-2">
                 <button onClick={() => setStep(1)} className="px-4 py-2 border border-white/10 text-white rounded-xl hover:bg-white/5 transition-all cursor-pointer flex items-center gap-1"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
@@ -502,7 +624,7 @@ export default function IssueReturn() {
                 ) : bookSearch.trim() && (
                   <div className="absolute w-full mt-1.5 bg-[#0e1220] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-20 max-h-40 overflow-y-auto text-left text-xs">
                     {books
-                      .filter(b => b.title.toLowerCase().includes(bookSearch.toLowerCase()) || b.isbn.includes(bookSearch))
+                      .filter(b => b && ((b.title ?? '').toLowerCase().includes(bookSearch.toLowerCase()) || (b.isbn ?? '').includes(bookSearch)))
                       .map(b => (
                         <button
                           key={b.id}
@@ -512,8 +634,8 @@ export default function IssueReturn() {
                           className="w-full p-2.5 hover:bg-white/5 cursor-pointer text-white border-b border-white/5 text-left flex justify-between items-center disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <div>
-                            <strong className="text-white font-bold">{b.title}</strong>
-                            <span className="text-white/40 block text-[9px] mt-0.5">Author: {b.author} | ISBN: {b.isbn}</span>
+                            <strong className="text-white font-bold">{b.title || 'Unknown Title'}</strong>
+                            <span className="text-white/40 block text-[9px] mt-0.5">Author: {b.author || 'Unknown'} | ISBN: {b.isbn || 'N/A'}</span>
                           </div>
                           {b.quantity > 0 ? (
                             <span className="text-[8px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold shrink-0">{b.quantity} Available</span>
@@ -545,10 +667,10 @@ export default function IssueReturn() {
                 <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-3.5 text-[10px]">
                   <span className="text-[9px] text-white/30 uppercase font-extrabold block border-b border-white/5 pb-1 flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-cyan-400" /> Catalog Registry</span>
                   <div className="space-y-2">
-                    <div className="flex justify-between"><span>Title:</span><strong className="text-white font-bold truncate max-w-[150px]">{selectedBook.title}</strong></div>
-                    <div className="flex justify-between"><span>Author:</span><strong className="text-white font-medium truncate max-w-[150px]">{selectedBook.author}</strong></div>
-                    <div className="flex justify-between"><span>ISBN:</span><strong className="text-white font-mono">{selectedBook.isbn}</strong></div>
-                    <div className="flex justify-between"><span>Category:</span><span className="text-cyan-300 font-bold">{selectedBook.category}</span></div>
+                    <div className="flex justify-between"><span>Title:</span><strong className="text-white font-bold truncate max-w-[150px]">{selectedBook.title || 'Unknown Title'}</strong></div>
+                    <div className="flex justify-between"><span>Author:</span><strong className="text-white font-medium truncate max-w-[150px]">{selectedBook.author || 'Unknown Author'}</strong></div>
+                    <div className="flex justify-between"><span>ISBN:</span><strong className="text-white font-mono">{selectedBook.isbn || 'N/A'}</strong></div>
+                    <div className="flex justify-between"><span>Category:</span><span className="text-cyan-300 font-bold">{selectedBook.category || 'General'}</span></div>
                   </div>
                 </div>
 
@@ -556,7 +678,7 @@ export default function IssueReturn() {
                 <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-3 text-[10px]">
                   <span className="text-[9px] text-white/30 uppercase font-extrabold block border-b border-white/5 pb-1 flex items-center gap-1"><Scale className="w-3.5 h-3.5 text-cyan-400" /> Physical Specifiers</span>
                   <div className="space-y-2">
-                    <div className="flex justify-between"><span>Accession Tag:</span><strong className="text-white font-mono">{selectedBook.accession_number || `ACC-${selectedBook.isbn.split('-')[2] || '92241'}`}</strong></div>
+                    <div className="flex justify-between"><span>Accession Tag:</span><strong className="text-white font-mono">{selectedBook.accession_number || `ACC-${(selectedBook.isbn ?? '').split('-')?.[2] || (selectedBook.isbn ?? '').split('-')?.[0] || '92241'}`}</strong></div>
                     <div className="flex justify-between"><span>Shelf Position:</span><strong className="text-white font-semibold">Floor {selectedBook.floor || '1'}, Rack {selectedBook.rack_number || 'A'}, Shelf {selectedBook.shelf_number || '3'}</strong></div>
                     <div className="flex justify-between"><span>Condition:</span><span className="text-emerald-400 font-bold font-sans">Excellent (0 Damaged)</span></div>
                     <div className="flex justify-between"><span>Calculated Fine Rate:</span><span className="text-amber-400 font-bold font-mono">₹5.00/day</span></div>
@@ -589,9 +711,9 @@ export default function IssueReturn() {
                 <div className="p-4 rounded-xl bg-slate-950/60 border border-white/5 space-y-3.5 text-[10px]">
                   <span className="text-[9px] text-white/30 uppercase font-extrabold block border-b border-white/5 pb-1">Checkout Summary</span>
                   <div className="space-y-1.5">
-                    <div className="flex justify-between"><span>Borrower:</span><strong className="text-white">{selectedMember.username}</strong></div>
-                    <div className="flex justify-between"><span>Card:</span><span className="text-cyan-300 font-mono font-semibold">{selectedMember.membership_id}</span></div>
-                    <div className="flex justify-between"><span>Asset:</span><strong className="text-white truncate max-w-[130px]">{selectedBook.title}</strong></div>
+                    <div className="flex justify-between"><span>Borrower:</span><strong className="text-white">{selectedMember.username || 'Unknown Member'}</strong></div>
+                    <div className="flex justify-between"><span>Card:</span><span className="text-cyan-300 font-mono font-semibold">{selectedMember.membership_id || 'N/A'}</span></div>
+                    <div className="flex justify-between"><span>Asset:</span><strong className="text-white truncate max-w-[130px]">{selectedBook.title || 'Unknown Title'}</strong></div>
                   </div>
                 </div>
 
@@ -649,11 +771,11 @@ export default function IssueReturn() {
                 </div>
                 <div className="space-y-2 text-[10px]">
                   <div className="flex justify-between"><span>Invoice Node ID:</span><strong className="text-white font-mono">#LN-{1000 + receiptData.id}</strong></div>
-                  <div className="flex justify-between"><span>Book Checked Out:</span><strong className="text-white truncate max-w-[170px]">{receiptData.book_title}</strong></div>
-                  <div className="flex justify-between"><span>Member Username:</span><strong className="text-white">{receiptData.member_name}</strong></div>
-                  <div className="flex justify-between"><span>Membership ID:</span><strong className="text-white font-mono">{receiptData.membership_id}</strong></div>
-                  <div className="flex justify-between border-t border-white/5 pt-2"><span>Issue Timestamp:</span><strong className="text-white">{receiptData.issue_date.split(' ')[0]}</strong></div>
-                  <div className="flex justify-between"><span>Release Due Date:</span><strong className="text-amber-400 font-semibold">{receiptData.due_date.split(' ')[0]}</strong></div>
+                  <div className="flex justify-between"><span>Book Checked Out:</span><strong className="text-white truncate max-w-[170px]">{receiptData.book_title || 'Unknown Title'}</strong></div>
+                  <div className="flex justify-between"><span>Member Username:</span><strong className="text-white">{receiptData.member_name || 'Unknown Member'}</strong></div>
+                  <div className="flex justify-between"><span>Membership ID:</span><strong className="text-white font-mono">{receiptData.membership_id || 'N/A'}</strong></div>
+                  <div className="flex justify-between border-t border-white/5 pt-2"><span>Issue Timestamp:</span><strong className="text-white">{(receiptData.issue_date ?? '').split(' ')[0] || 'N/A'}</strong></div>
+                  <div className="flex justify-between"><span>Release Due Date:</span><strong className="text-amber-400 font-semibold">{(receiptData.due_date ?? '').split(' ')[0] || 'N/A'}</strong></div>
                 </div>
                 
                 <div className="pt-2.5 border-t border-white/5 text-center text-white/40 text-[8px]">
@@ -701,11 +823,11 @@ export default function IssueReturn() {
             <div className="grid grid-cols-2 gap-2 text-center">
               <div className="p-2 rounded-lg bg-slate-950/60 border border-white/5">
                 <span className="text-white/40 text-[7px] uppercase font-bold block">Issues Today</span>
-                <strong className="text-cyan-400 text-sm font-mono font-extrabold">{allIssues.filter(i => i.status === 'issued').length + 2}</strong>
+                <strong className="text-cyan-400 text-sm font-mono font-extrabold">{(Array.isArray(allIssues) ? allIssues : []).filter(i => i && i.status === 'issued').length}</strong>
               </div>
               <div className="p-2 rounded-lg bg-slate-950/60 border border-white/5">
                 <span className="text-white/40 text-[7px] uppercase font-bold block">Returns Today</span>
-                <strong className="text-emerald-400 text-sm font-mono font-extrabold">{allIssues.filter(i => i.status === 'returned').length + 1}</strong>
+                <strong className="text-emerald-400 text-sm font-mono font-extrabold">{(Array.isArray(allIssues) ? allIssues : []).filter(i => i && i.status === 'returned').length}</strong>
               </div>
               <div className="p-2 rounded-lg bg-slate-950/60 border border-white/5">
                 <span className="text-white/40 text-[7px] uppercase font-bold block">Holds/Reserves</span>
@@ -713,7 +835,7 @@ export default function IssueReturn() {
               </div>
               <div className="p-2 rounded-lg bg-slate-950/60 border border-white/5">
                 <span className="text-white/40 text-[7px] uppercase font-bold block">Active Fines</span>
-                <strong className="text-rose-400 text-sm font-mono font-extrabold">₹{allFines.filter(f => f.status === 'pending').reduce((sum, f) => sum + f.amount, 0).toFixed(0)}</strong>
+                <strong className="text-rose-400 text-sm font-mono font-extrabold">₹{(Array.isArray(allFines) ? allFines : []).filter(f => f && f.status === 'pending').reduce((sum, f) => sum + (f.amount || 0), 0).toFixed(0)}</strong>
               </div>
             </div>
           </div>
@@ -723,17 +845,37 @@ export default function IssueReturn() {
             <h5 className="text-white font-bold uppercase tracking-wider m-0 border-b border-white/5 pb-2 flex items-center gap-1.5">
               <History className="w-4 h-4 text-cyan-400" /> Recent Feed
             </h5>
-            <div className="space-y-3 max-h-36 overflow-y-auto pr-1">
-              {allIssues.slice(0, 3).map((item, idx) => (
-                <div key={idx} className="flex gap-2 text-[9px] border-b border-white/5 pb-2 last:border-0 last:pb-0">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${item.status === 'issued' ? 'bg-cyan-500' : 'bg-emerald-500'}`} />
-                  <div className="min-w-0 flex-1">
-                    <span className="text-white font-bold block truncate">{item.book_title}</span>
-                    <span className="text-white/40 block mt-0.5">{item.member_name} • {item.status === 'issued' ? 'Issued' : 'Returned'}</span>
+            <div className="space-y-3 max-h-48 overflow-y-auto pr-1">
+              {(Array.isArray(allIssues) ? allIssues : []).slice(0, 5).map((item, idx) => (
+                <div key={idx} className="flex gap-2 text-[9px] border-b border-white/5 pb-2 last:border-0 last:pb-0 items-center justify-between">
+                  <div className="flex gap-2 items-center min-w-0 flex-1">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.status === 'issued' ? 'bg-cyan-500' : item.status === 'overdue' ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-white font-bold block truncate">{item.book_title}</span>
+                      <span className="text-white/40 block mt-0.5 truncate">{item.member_name} • <span className="uppercase">{item.status}</span></span>
+                    </div>
                   </div>
+                  {item.status !== 'returned' && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleReturnBook(item.id)}
+                        disabled={loading}
+                        className="text-[8px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded cursor-pointer disabled:opacity-50 font-bold"
+                      >
+                        Return
+                      </button>
+                      <button
+                        onClick={() => handleRenewBook(item.id)}
+                        disabled={loading}
+                        className="text-[8px] bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 px-1.5 py-0.5 rounded cursor-pointer disabled:opacity-50 font-bold"
+                      >
+                        Renew
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
-              {allIssues.length === 0 && (
+              {(!Array.isArray(allIssues) || allIssues.length === 0) && (
                 <span className="text-white/30 text-[9px] block text-center py-2">No circulation feeds today.</span>
               )}
             </div>

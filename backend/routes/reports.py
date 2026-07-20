@@ -9,8 +9,114 @@ from datetime import datetime
 import csv
 import io
 import os
+import logging
+import traceback
 
 reports_bp = Blueprint('reports', __name__)
+
+def safe_generate_excel_response(data_rows, headers, filename_prefix, sheet_name="Sheet1"):
+    """
+    Safely generates an Excel (.xlsx) download response with multi-stage fallback:
+    1. Attempts openpyxl directly (Pure Python, zero C-extension DLL dependencies, immune to AppLocker/WDAC DLL blocks).
+    2. Attempts pandas + openpyxl if openpyxl fails for any reason.
+    3. Fallback to CSV generation if Excel libraries are blocked or fail.
+    Guarantees the user receives a downloadable file instead of an unhandled exception.
+    """
+    out_stream = io.BytesIO()
+    
+    # Stage 1: Pure openpyxl (No numpy / DLL load dependencies)
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = str(sheet_name)[:31]
+
+        # Write header with styling
+        ws.append(headers)
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # Write data rows
+        for r in data_rows:
+            if isinstance(r, dict):
+                row_vals = [r.get(h, r.get(f'col{idx+1}', '')) for idx, h in enumerate(headers)]
+            else:
+                row_vals = list(r)
+            ws.append(row_vals)
+
+        # Auto-fit column widths
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+        wb.save(out_stream)
+        out_stream.seek(0)
+        
+        return send_file(
+            out_stream,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f"{filename_prefix}.xlsx"
+        )
+    except Exception as openpyxl_err:
+        logging.warning(f"Direct openpyxl export failed: {openpyxl_err}\n{traceback.format_exc()}")
+
+    # Stage 2: Pandas export (if pandas & numpy DLLs are allowed)
+    try:
+        import pandas as pd
+        mapped_data = []
+        for r in data_rows:
+            if isinstance(r, dict):
+                row_dict = {h: r.get(h, r.get(f'col{idx+1}', '')) for idx, h in enumerate(headers)}
+            else:
+                row_dict = {h: r[idx] if idx < len(r) else '' for idx, h in enumerate(headers)}
+            mapped_data.append(row_dict)
+
+        df = pd.DataFrame(mapped_data)
+        pd_out = io.BytesIO()
+        with pd.ExcelWriter(pd_out, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False)
+        pd_out.seek(0)
+        return send_file(
+            pd_out,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=f"{filename_prefix}.xlsx"
+        )
+    except Exception as pandas_err:
+        logging.warning(f"Pandas export failed (AppLocker/WDAC DLL Block): {pandas_err}\n{traceback.format_exc()}")
+
+    # Stage 3: CSV Fallback
+    logging.info("Falling back to standard CSV export format.")
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(headers)
+    for r in data_rows:
+        if isinstance(r, dict):
+            row_vals = [r.get(h, r.get(f'col{idx+1}', '')) for idx, h in enumerate(headers)]
+        else:
+            row_vals = list(r)
+        writer.writerow(row_vals)
+
+    mem_file = io.BytesIO()
+    mem_file.write(output.getvalue().encode('utf-8'))
+    mem_file.seek(0)
+    return send_file(
+        mem_file,
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f"{filename_prefix}_report.csv"
+    )
 
 def check_export_authorization():
     # 1. Try checking standard JWT header in request
@@ -110,45 +216,10 @@ def export_report():
     # Compile dynamic exports for other report categories
     try:
         if format_type == 'xlsx':
-            import pandas as pd
             report = ReportService.compile_report(report_type, org_id=org_id)
             cols = report['columns']
             rows = report['data']
-            
-            mapped_data = []
-            for r in rows:
-                row_dict = {}
-                for idx, col_name in enumerate(cols):
-                    key = f"col{idx+1}"
-                    row_dict[col_name] = r.get(key, '')
-                mapped_data.append(row_dict)
-                
-            df = pd.DataFrame(mapped_data)
-            
-            out_stream = io.BytesIO()
-            with pd.ExcelWriter(out_stream, engine='openpyxl') as writer:
-                sheet_name = f"{report_type.capitalize()} Report"
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                
-                worksheet = writer.sheets[sheet_name]
-                from openpyxl.styles import Font
-                bold_font = Font(bold=True)
-                for col_idx in range(1, len(df.columns) + 1):
-                    cell = worksheet.cell(row=1, column=col_idx)
-                    cell.font = bold_font
-                    
-                for col in worksheet.columns:
-                    max_len = max(len(str(cell.value or '')) for cell in col)
-                    col_letter = col[0].column_letter
-                    worksheet.column_dimensions[col_letter].width = max(max_len + 3, 10)
-                    
-            out_stream.seek(0)
-            return send_file(
-                out_stream,
-                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                as_attachment=True,
-                download_name=f"{report_type}_report.xlsx"
-            )
+            return safe_generate_excel_response(rows, cols, f"{report_type}_report", sheet_name=f"{report_type.capitalize()} Report")
             
         elif format_type == 'pdf':
             from reportlab.lib.pagesizes import letter
@@ -356,43 +427,12 @@ def export_books_csv(org_id=None):
 
 def export_books_excel(org_id=None):
     try:
-        import pandas as pd
         data = fetch_books_report_data(org_id)
-        
-        df = pd.DataFrame(data)
-        df.columns = ["Book ID", "ISBN", "Title", "Author", "Category", "Status", "Copies", "Available", "Created Date"]
-        
-        # Write to byte stream using openpyxl
-        out_stream = io.BytesIO()
-        with pd.ExcelWriter(out_stream, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Books Inventory', index=False)
-            
-            # Format workbook (bold headers, auto width)
-            workbook = writer.book
-            worksheet = writer.sheets['Books Inventory']
-            
-            # Bold headers
-            from openpyxl.styles import Font
-            bold_font = Font(bold=True)
-            for col_idx in range(1, len(df.columns) + 1):
-                cell = worksheet.cell(row=1, column=col_idx)
-                cell.font = bold_font
-                
-            # Auto-fit columns
-            for col in worksheet.columns:
-                max_len = max(len(str(cell.value or '')) for cell in col)
-                col_letter = col[0].column_letter
-                worksheet.column_dimensions[col_letter].width = max(max_len + 3, 10)
-                
-        out_stream.seek(0)
-        return send_file(
-            out_stream,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name="books_report.xlsx"
-        )
+        headers = ["Book ID", "ISBN", "Title", "Author", "Category", "Status", "Copies", "Available", "Created Date"]
+        return safe_generate_excel_response(data, headers, "books_report", sheet_name="Books Inventory")
     except Exception as e:
-        return jsonify({"msg": f"Excel generation failed: {str(e)}"}), 500
+        logging.error(f"Failed to fetch books report data: {e}\n{traceback.format_exc()}")
+        return jsonify({"msg": f"Export data retrieval failed: {str(e)}"}), 500
 
 
 def export_books_pdf(org_id=None):

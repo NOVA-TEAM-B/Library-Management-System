@@ -45,12 +45,12 @@ class Book(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'title': self.title,
-            'author': self.author,
-            'category': self.category,
-            'isbn': self.isbn,
-            'availability': self.availability,
-            'quantity': self.quantity,
+            'title': self.title or 'Unknown Title',
+            'author': self.author or 'Unknown Author',
+            'category': self.category or 'General',
+            'isbn': self.isbn or 'N/A',
+            'availability': self.availability if self.availability is not None else True,
+            'quantity': self.quantity if self.quantity is not None else 1,
             'cover_url': self.cover_url,
             'rating': self.rating,
             'popularity': self.popularity,

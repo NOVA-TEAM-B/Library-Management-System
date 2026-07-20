@@ -436,3 +436,55 @@ def save_reading_progress():
         "current_page": current_page
     }), 200
 
+
+@issue_return_bp.route('/<int:issue_id>/renew', methods=['POST'])
+@jwt_required()
+def renew_book(issue_id):
+    issue = Issue.query.get(issue_id)
+    if not issue:
+        return jsonify({"msg": "Issue record not found"}), 404
+        
+    claims = get_jwt()
+    current_user_id = int(get_jwt_identity())
+    role = claims.get('role')
+    
+    if role not in ['admin', 'librarian'] and issue.member_id != current_user_id:
+        return jsonify({"msg": "Unauthorized to renew this checkout"}), 403
+        
+    org_id = get_current_org_id()
+    if org_id is not None and issue.org_id != org_id:
+        return jsonify({"msg": "Unauthorized. Resource organization mismatch."}), 403
+        
+    if issue.status == 'returned':
+        return jsonify({"msg": "Cannot renew a returned book"}), 400
+        
+    data = request.get_json() or {}
+    due_days = int(data.get('due_days', 14))
+    
+    now = datetime.utcnow()
+    base_date = issue.due_date if issue.due_date > now else now
+    issue.due_date = base_date + timedelta(days=due_days)
+    if issue.status == 'overdue':
+        issue.status = 'issued'
+        
+    db.session.commit()
+    
+    from flask import current_app
+    if hasattr(current_app, 'socketio') and current_app.socketio:
+        try:
+            current_app.socketio.emit('sync', {'event': 'book_renewed', 'user_id': issue.member_id}, broadcast=True)
+            current_app.socketio.emit('notification', {
+                'title': 'Book Loan Renewed',
+                'message': f"Due date for '{issue.book.title if issue.book else ''}' extended.",
+                'timestamp': datetime.utcnow().strftime('%H:%M:%S'),
+                'is_read': False
+            }, broadcast=True)
+        except Exception as e:
+            print(f"Failed to emit socketio event: {e}")
+            
+    return jsonify({
+        "msg": "Book loan renewed successfully",
+        "issue": issue.to_dict()
+    }), 200
+
+

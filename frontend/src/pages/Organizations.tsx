@@ -565,7 +565,7 @@ export default function Organizations() {
                 </div>
 
                 <div className="flex items-center justify-between text-[9px] text-white/40 pt-2 border-t border-white/5">
-                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Created: {org.created_at.split(' ')[0]}</span>
+                  <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5" /> Created: {(org.created_at ?? '').split(' ')[0] || 'N/A'}</span>
                   <div className="flex gap-2">
                     <button
                       onClick={() => {

@@ -27,6 +27,7 @@ import LibraryRequests from './pages/LibraryRequests';
 import Billing from './pages/Billing';
 import EnterpriseHub from './pages/EnterpriseHub';
 import { ToastContainer } from './components/Toast';
+import ErrorBoundary from './components/ErrorBoundary';
 
 
 // Public Pages & Layouts
@@ -486,7 +487,7 @@ export default function App() {
       return ['dashboard', 'organizations', 'audit_logs', 'settings', 'profile'].includes(tab);
     }
     if (user.role === 'admin') {
-      return ['dashboard', 'members', 'books', 'reports', 'settings', 'profile', 'requests', 'billing'].includes(tab);
+      return ['dashboard', 'members', 'books', 'issue', 'reports', 'settings', 'profile', 'requests', 'billing'].includes(tab);
     }
     if (user.role === 'librarian') {
       return ['dashboard', 'books', 'issue', 'fines', 'reports', 'profile', 'requests'].includes(tab);
@@ -907,7 +908,7 @@ export default function App() {
           {!hasAccess(activeTab) ? (
             <AccessDenied role={user.role} tab={activeTab} onBackToDashboard={() => setActiveTab('dashboard')} />
           ) : (
-            <>
+            <ErrorBoundary fallbackTitle="Lending Desk Module Error">
               {activeTab === 'dashboard' && <Dashboard user={user} onTabChange={setActiveTab} />}
               {activeTab === 'books' && <BookExplorer />}
               {activeTab === 'members' && <MemberManagement />}
@@ -923,7 +924,7 @@ export default function App() {
               {activeTab === 'settings' && <Settings />}
               {activeTab === 'billing' && <Billing user={user} onProfileUpdate={setUser} />}
               {activeTab === 'enterprise_hub' && <EnterpriseHub user={user} onTabChange={setActiveTab} />}
-            </>
+            </ErrorBoundary>
           )}
         </div>
       </main>

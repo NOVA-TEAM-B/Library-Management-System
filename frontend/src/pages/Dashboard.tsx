@@ -1171,7 +1171,7 @@ export default function Dashboard({ user, onTabChange }: DashboardProps) {
                     <span className="text-[10px] text-slate-500 block mt-0.5 truncate">Author: {item.author}</span>
                   </div>
                   <div className="flex justify-between items-center text-[10px] mt-2 border-t border-white/5 pt-2">
-                    <span className="text-slate-500">Issued: {item.issue_date.split(' ')[0]}</span>
+                    <span className="text-slate-500">Issued: {(item.issue_date ?? '').split(' ')[0] || 'N/A'}</span>
                     {item.renewal_requested ? (
                       <span className="text-yellow-400 font-bold bg-yellow-500/10 px-2 py-0.5 rounded-lg border border-yellow-500/20">Renewal Pending</span>
                     ) : item.renewal_count >= 3 ? (

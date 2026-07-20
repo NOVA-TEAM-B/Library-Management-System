@@ -357,7 +357,7 @@ export default function AIAssistant() {
                         <div key={issue.id} className="p-2.5 rounded-xl bg-red-950/20 border border-red-500/20 text-[9px] space-y-0.5">
                           <div className="text-white font-medium truncate">{issue.book_title}</div>
                           <div className="text-white/60">Borrower ID: {issue.member_name}</div>
-                          <div className="text-red-400 font-bold">Due Date: {issue.due_date.split(' ')[0]}</div>
+                          <div className="text-red-400 font-bold">Due Date: {(issue.due_date ?? '').split(' ')[0] || 'N/A'}</div>
                         </div>
                       ))}
                     </div>

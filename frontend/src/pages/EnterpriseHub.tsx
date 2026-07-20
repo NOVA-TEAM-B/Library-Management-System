@@ -817,8 +817,8 @@ export default function EnterpriseHub({ user, onTabChange }: EnterpriseHubProps)
                       }`}
                     >
                       <Database className="w-6 h-6 mb-2" />
-                      <span className="font-bold text-[10px] leading-tight block">{rack.split(' (')[0]}</span>
-                      <span className="text-[8px] text-slate-500 mt-1 block">{rack.split(' (')[1].replace(')', '')}</span>
+                      <span className="font-bold text-[10px] leading-tight block">{(rack ?? '').split(' (')[0] || 'N/A'}</span>
+                      <span className="text-[8px] text-slate-500 mt-1 block">{(rack ?? '').includes('(') ? (rack ?? '').split(' (')[1].replace(')', '') : ''}</span>
                     </div>
                   ))}
                 </div>

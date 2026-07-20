@@ -228,10 +228,10 @@ export default function ReadingHistory() {
                       <span className="text-[10px] text-white/50 block mt-0.5 truncate max-w-[200px]">By {item.book_author}</span>
                       
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[8.5px] text-white/40 mt-1">
-                        <span>Issued: <span className="text-white/60">{item.issue_date.split(' ')[0]}</span></span>
-                        <span>Due: <span className="text-white/60">{item.due_date.split(' ')[0]}</span></span>
+                        <span>Issued: <span className="text-white/60">{(item.issue_date ?? '').split(' ')[0] || 'N/A'}</span></span>
+                        <span>Due: <span className="text-white/60">{(item.due_date ?? '').split(' ')[0] || 'N/A'}</span></span>
                         {item.status === 'returned' && (
-                          <span>Returned: <span className="text-emerald-400/90">{item.return_date.split(' ')[0]}</span></span>
+                          <span>Returned: <span className="text-emerald-400/90">{(item.return_date ?? '').split(' ')[0] || 'N/A'}</span></span>
                         )}
                       </div>
                     </div>
