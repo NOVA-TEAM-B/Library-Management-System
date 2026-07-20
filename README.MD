@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Nova Library SaaS Enterprise Platform - Documentation
 
 Welcome to **Nova Library**, an enterprise-level, production-quality College Library Management System. Nova Library integrates advanced NLP artificial intelligence companions, interactive floor maps, seat booking grids, digital documents versioning systems, gamified milestone tracking, and telemetry health logs.
@@ -98,3 +99,6 @@ Validate backend integrity, OTP caches, KPIs, reports, and NLP processors by exe
 python verify_x.py
 ```
 Ensure all diagnostic outputs return `[SUCCESS]` blocks.
+=======
+
+>>>>>>> 03ad24794ddbbfbe6cf1c1ad3b70c912652aaa07

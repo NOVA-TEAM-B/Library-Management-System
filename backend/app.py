@@ -65,6 +65,7 @@ from backend.routes.enterprise import enterprise_bp
 app = Flask(__name__)
 app.config.from_object(Settings)
 
+<<<<<<< HEAD
 # Enable CORS (allow React dev server on port 5173-5176)
 CORS(app, supports_credentials=True, resources={r"/api/*": {
     "origins": [
@@ -74,6 +75,10 @@ CORS(app, supports_credentials=True, resources={r"/api/*": {
         "http://localhost:5176", "http://127.0.0.1:5176"
     ]
 }})
+=======
+# Enable CORS (allow React dev server on port 5173)
+CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
+>>>>>>> 03ad24794ddbbfbe6cf1c1ad3b70c912652aaa07
 
 # Initialize Database
 db.init_app(app)
@@ -83,13 +88,19 @@ jwt = JWTManager(app)
 
 # Initialize WebSockets (SocketIO)
 socketio = SocketIO(app, cors_allowed_origins="*")
+<<<<<<< HEAD
 app.socketio = socketio
+=======
+>>>>>>> 03ad24794ddbbfbe6cf1c1ad3b70c912652aaa07
 
 # Register Blueprints
 app.register_blueprint(auth_bp, url_prefix='/api/auth')
 app.register_blueprint(books_bp, url_prefix='/api/books')
 app.register_blueprint(members_bp, url_prefix='/api/members')
+<<<<<<< HEAD
 
+=======
+>>>>>>> 03ad24794ddbbfbe6cf1c1ad3b70c912652aaa07
 app.register_blueprint(issue_return_bp, url_prefix='/api/issues')
 app.register_blueprint(reports_bp, url_prefix='/api/reports')
 app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
@@ -364,6 +375,7 @@ def setup_database():
                     db.session.rollback()
                     print(f"Failed to migrate issues table: {ex}")
 
+<<<<<<< HEAD
             # Column: reading_progress & current_page (issues table) (NEW)
             try:
                 db.session.execute(db.text('SELECT reading_progress FROM issues LIMIT 1'))
@@ -398,6 +410,10 @@ def setup_database():
         app._db_initialized = True
 
 
+=======
+        app._db_initialized = True
+
+>>>>>>> 03ad24794ddbbfbe6cf1c1ad3b70c912652aaa07
 @app.route('/api/send-otp', methods=['POST'])
 def global_send_otp():
     from backend.routes.auth import generate_otp
